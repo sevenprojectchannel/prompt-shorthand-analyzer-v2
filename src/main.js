@@ -190,10 +190,9 @@ class App {
 
   updateInstalledShorthands(newInstalledList) {
     this.analysisResult.installedShorthands = newInstalledList;
-    // Reconstruct optimal prompt
+    // Reconstruct optimal prompt using Unified Runtime Prompt Composer (Single Source of Truth)
     this.analysisResult.optimalPrompt = this.geminiService.localEngine.buildOptimalPrompt(
-      this.analysisResult.cleanText,
-      newInstalledList
+      this.analysisResult
     );
 
     // Sync active and checked states on cards

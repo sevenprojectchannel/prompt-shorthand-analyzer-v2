@@ -85,12 +85,20 @@ export class SemanticEngine {
     // 8. Visual Transformation FROM -> TO
     const visualTransformation = this.generateVisualTransformation(editAreas, lockedAreas, textWithoutShorthands);
 
-    // 9. Optimal Prompt Construction
-    const basicOptimalPrompt = this.buildOptimalPrompt(textWithoutShorthands, installedShorthands);
+    // 9. Optimal Prompt Construction (Unified Composer V2.2.3)
+    const basicOptimalPrompt = this.buildBasicPrompt(textWithoutShorthands, installedShorthands);
     const smartOptimalPrompt = this.buildSmartAdaptivePrompt(textWithoutShorthands, installedShorthands, editAreas, lockedAreas, intentData, options);
     const adaptiveMetadata = this.getAdaptiveMetadata(textWithoutShorthands, installedShorthands, editAreas, lockedAreas, intentData);
 
-    const optimalPrompt = isAdaptive ? smartOptimalPrompt : basicOptimalPrompt;
+    const optimalPrompt = this.buildOptimalPrompt({
+      cleanText: textWithoutShorthands,
+      installedShorthands,
+      editAreas,
+      lockedAreas,
+      intentData,
+      isAdaptive,
+      options
+    });
 
     return {
       rawPrompt,
@@ -1398,15 +1406,18 @@ export class SemanticEngine {
       { pattern: /\s*dan tekstur kain yang realistis\b/gi, raw: 'tekstur' },
       { pattern: /\s*dengan tekstur kain yang realistis\b/gi, raw: 'tekstur' },
       { pattern: /\s*tekstur kain realistis\b/gi, raw: 'tekstur' },
+      { pattern: /\s*tekstur kain\b/gi, raw: 'tekstur' },
       { pattern: /\s*with realistic fabric texture and natural fit\b/gi, raw: 'texture' },
       { pattern: /\s*with natural fabric drape and fit\b/gi, raw: 'drape' },
       { pattern: /\s*natural texture\b/gi, raw: 'natural texture' },
       { pattern: /\s*tekstur alami\b/gi, raw: 'tekstur alami' },
       { pattern: /\s*dengan framing komposisi proporsional\b/gi, raw: 'framing' },
       { pattern: /\s*dengan komposisi framing yang proporsional\b/gi, raw: 'framing' },
+      { pattern: /\s*framing proporsional\b/gi, raw: 'framing' },
       { pattern: /\s*with proportional framing\b/gi, raw: 'framing' },
       { pattern: /\s*vertical cinematic framing\b/gi, raw: 'cinematic' },
       { pattern: /\s*smart composition\b/gi, raw: 'smart composition' },
+      { pattern: /\s*bahan premium\b/gi, raw: 'premium' },
       { pattern: /\s*katun\b/gi, raw: 'katun' },
       { pattern: /\s*cotton\b/gi, raw: 'cotton' },
       { pattern: /\s*premium\b/gi, raw: 'premium' },
@@ -1426,7 +1437,14 @@ export class SemanticEngine {
       { pattern: /\s*sexy\b/gi, raw: 'sexy' },
       { pattern: /\s*seksi\b/gi, raw: 'seksi' },
       { pattern: /\s*fitted\b/gi, raw: 'fitted' },
-      { pattern: /\s*skin retouch\b/gi, raw: 'skin retouch' }
+      { pattern: /\s*perfect fit\b/gi, raw: 'perfect fit' },
+      { pattern: /\s*skin retouch\b/gi, raw: 'skin retouch' },
+      { pattern: /\s*rambut indah\b/gi, raw: 'rambut indah' },
+      { pattern: /\s*rambut sehat\b/gi, raw: 'rambut sehat' },
+      { pattern: /\s*proporsional\b/gi, raw: 'proporsional' },
+      { pattern: /\b(rapi)\b/gi, raw: 'rapi' },
+      { pattern: /\b(realistis)\b/gi, raw: 'realistis' },
+      { pattern: /\b(realistic)\b/gi, raw: 'realistic' }
     ];
 
     for (const item of forbiddenPatterns) {
@@ -1435,7 +1453,15 @@ export class SemanticEngine {
       }
     }
 
-    return sanitized.replace(/\s+/g, ' ').trim();
+    // Clean up extra spaces, dangling commas or periods
+    sanitized = sanitized
+      .replace(/\s+,/g, ',')
+      .replace(/,\s*\./g, '.')
+      .replace(/\s+\./g, '.')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    return sanitized;
   }
 
   buildSmartAdaptivePrompt(cleanText, installedShorthands = [], editAreas = [], lockedAreas = [], intentData = null, options = {}) {
@@ -1506,12 +1532,14 @@ export class SemanticEngine {
         } else if (hasHairPreservation) {
           sentences.push("Preserve subject's original hair color and style.");
         }
-        sentences.push('Avoid hairline artifacts and unintended distortions to face or head shape.');
+        if (hasFacePreservation || hasHairPreservation) {
+          sentences.push('Avoid hairline artifacts and unintended distortions to face or head shape.');
+        }
       } else {
         if (mentionsNaturalHair) {
-          sentences.push('Lepaskan penutup kepala/hijab subjek dan tampilkan rambut secara natural.');
+          sentences.push('Lepaskan penutup kepala/hijab dan tampilkan rambut secara natural.');
         } else {
-          sentences.push('Lepaskan penutup kepala/hijab subjek.');
+          sentences.push('Lepaskan penutup kepala/hijab.');
         }
         if (hasFacePreservation && hasHairPreservation) {
           sentences.push('Kunci dan pertahankan wajah serta identitas asli subjek tanpa perubahan, serta pertahankan rambut asli.');
@@ -1520,7 +1548,9 @@ export class SemanticEngine {
         } else if (hasHairPreservation) {
           sentences.push('Pertahankan warna dan gaya rambut asli subjek.');
         }
-        sentences.push('Hindari artefak pada garis rambut dan perubahan bentuk kepala atau wajah.');
+        if (hasFacePreservation || hasHairPreservation) {
+          sentences.push('Hindari artefak pada garis rambut dan perubahan bentuk kepala atau wajah.');
+        }
       }
     }
     // 3. OUTFIT PROMPT (TEST 6, 7, 8)
@@ -1615,11 +1645,11 @@ export class SemanticEngine {
     // 5. BACKGROUND REPLACEMENT
     else if (editEntities.has('BACKGROUND') && editAreas.some(e => e.action.includes('REPLACE'))) {
       if (isEn) {
-        sentences.push('Replace background scenery harmoniously with realistic perspective.');
+        sentences.push('Replace background scenery harmoniously with proper perspective.');
         sentences.push('Preserve main subject identity with seamless ambient lighting integration.');
         sentences.push('Avoid perspective mismatch or harsh lighting contrast between subject and new background.');
       } else {
-        sentences.push('Ganti latar belakang foto dengan pemandangan baru yang harmonis dan proporsional.');
+        sentences.push('Ganti latar belakang foto dengan pemandangan baru yang harmonis.');
         sentences.push('Pertahankan identitas subjek utama dengan pencahayaan ambien yang menyatu selaras.');
         sentences.push('Hindari ketidaksesuaian perspektif atau kontras pencahayaan yang tidak alami antara subjek dan latar.');
       }
@@ -1674,18 +1704,91 @@ export class SemanticEngine {
     return promptParagraph;
   }
 
-  buildOptimalPrompt(cleanText, installedShorthands) {
-    if (!cleanText && installedShorthands.length === 0) {
+  /**
+   * Unified Runtime Prompt Composer (Single Source of Truth V2.2.3)
+   * All runtime UI, test suites, and internal pipelines must use this method.
+   * 
+   * Supports:
+   * 1. buildOptimalPrompt(analysisObject)
+   * 2. buildOptimalPrompt(cleanText, installedShorthands, editAreas, lockedAreas, intentData, options)
+   */
+  buildOptimalPrompt(analysisOrCleanText, installedShorthands = null, editAreas = null, lockedAreas = null, intentData = null, options = {}) {
+    if (!analysisOrCleanText && (!installedShorthands || installedShorthands.length === 0)) {
       return '';
     }
 
-    let base = cleanText.trim();
+    let cleanText = '';
+    let installed = [];
+    let edits = [];
+    let locks = [];
+    let intent = null;
+    let isAdaptive = Boolean(this.options?.adaptive);
+    let opts = { ...this.options };
+
+    if (typeof analysisOrCleanText === 'object' && analysisOrCleanText !== null) {
+      // Called with analysis object
+      cleanText = analysisOrCleanText.cleanText || analysisOrCleanText.rawPrompt || '';
+      installed = installedShorthands || analysisOrCleanText.installedShorthands || [];
+      edits = editAreas || analysisOrCleanText.editAreas || [];
+      locks = lockedAreas || analysisOrCleanText.lockedAreas || [];
+      intent = intentData || analysisOrCleanText.intent || null;
+      if (analysisOrCleanText.isAdaptive !== undefined) {
+        isAdaptive = Boolean(analysisOrCleanText.isAdaptive);
+      } else if (analysisOrCleanText.options?.adaptive !== undefined) {
+        isAdaptive = Boolean(analysisOrCleanText.options.adaptive);
+      } else if (options && options.adaptive !== undefined) {
+        isAdaptive = Boolean(options.adaptive);
+      }
+      opts = { ...this.options, ...(analysisOrCleanText.options || {}), ...(options || {}) };
+    } else {
+      // Called with positional arguments: (cleanText, installedShorthands, ...)
+      cleanText = String(analysisOrCleanText || '');
+      installed = Array.isArray(installedShorthands) ? installedShorthands : [];
+      if (Array.isArray(editAreas)) edits = editAreas;
+      if (Array.isArray(lockedAreas)) locks = lockedAreas;
+      if (intentData && typeof intentData === 'object' && !Array.isArray(intentData)) {
+        intent = intentData;
+      }
+      if (typeof editAreas === 'object' && !Array.isArray(editAreas) && editAreas !== null) {
+        opts = { ...opts, ...editAreas };
+        if (editAreas.adaptive !== undefined) isAdaptive = Boolean(editAreas.adaptive);
+      }
+      if (options && options.adaptive !== undefined) {
+        isAdaptive = Boolean(options.adaptive);
+      }
+    }
+
+    if (!cleanText && installed.length === 0) {
+      return '';
+    }
+
+    // Unified dispatch based on mode
+    if (isAdaptive) {
+      if (edits.length === 0 && locks.length === 0 && cleanText) {
+        const textWithoutShorthands = this.stripShorthands(cleanText);
+        const inferredIntent = intent || this.analyzeIntent(textWithoutShorthands);
+        const areas = this.extractAreas(textWithoutShorthands, inferredIntent);
+        edits = areas.editAreas;
+        locks = areas.lockedAreas;
+        intent = inferredIntent;
+      }
+      return this.buildSmartAdaptivePrompt(cleanText, installed, edits, locks, intent, opts);
+    } else {
+      return this.buildBasicPrompt(cleanText, installed);
+    }
+  }
+
+  buildBasicPrompt(cleanText, installedShorthands = []) {
+    if (!cleanText && (!installedShorthands || installedShorthands.length === 0)) {
+      return '';
+    }
+
+    let base = cleanText ? cleanText.trim() : '';
     if (base && !base.endsWith('.') && !base.endsWith('!') && !base.endsWith('?')) {
       base += '.';
     }
 
-    // Append installed shorthands
-    const shorthandsString = installedShorthands.join(' ');
+    const shorthandsString = (installedShorthands || []).filter(Boolean).join(' ');
     if (base && shorthandsString) {
       return `${base} ${shorthandsString}`;
     } else if (shorthandsString) {
@@ -1727,4 +1830,12 @@ export class SemanticEngine {
       timestamp: null
     };
   }
+}
+
+/**
+ * Standalone Unified Prompt Composer helper (Single Source of Truth)
+ */
+export function buildOptimalPrompt(analysisOrCleanText, installedShorthands = null, editAreas = null, lockedAreas = null, intentData = null, options = {}) {
+  const engine = new SemanticEngine(INITIAL_SHORTHAND_CATALOG, { adaptive: true });
+  return engine.buildOptimalPrompt(analysisOrCleanText, installedShorthands, editAreas, lockedAreas, intentData, options);
 }

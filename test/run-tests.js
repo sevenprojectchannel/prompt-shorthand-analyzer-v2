@@ -3,7 +3,7 @@
  * Verifikasi Lengkap Semantic Shorthand Knowledge Base & 8 Skenario Uji Wajib (TEST A - TEST H)
  */
 
-import { SemanticEngine } from '../src/lib/semanticEngine.js';
+import { SemanticEngine, buildOptimalPrompt } from '../src/lib/semanticEngine.js';
 import { INITIAL_SHORTHAND_CATALOG, SHORTHAND_CATEGORIES, filterCatalogKnowledgeBase } from '../src/data/catalogData.js';
 import { CatalogRepository } from '../src/services/catalogRepository.js';
 import { cleanPromptForCopy } from '../src/lib/promptFormatter.js';
@@ -884,6 +884,110 @@ console.log('\n--- TEST 27: Shorthand Order Preservation ---');
   assert(res.installedShorthands.length === 4, 'Test 27: Exactly 4 shorthands installed');
   const matchesOrder = expectedOrder.every((code, idx) => res.installedShorthands[idx] === code);
   assert(matchesOrder, `Test 27: Shorthand order matches natural user intent: ${res.installedShorthands.join(' ')}`);
+}
+
+// =============================================================================
+// PATCH V2.2.3 — UNIFIED RUNTIME PROMPT COMPOSER TESTS (TEST 28 - TEST 32)
+// =============================================================================
+console.log('\n==================================================');
+console.log('PATCH V2.2.3 — UNIFIED RUNTIME PROMPT COMPOSER TESTS');
+console.log('==================================================\n');
+
+// TEST 28: Live Snapshot Parity Test (UI Runtime Parity)
+console.log('--- TEST 28: Live Snapshot Parity Test (UI Runtime Parity) ---');
+{
+  const prompt = 'Ganti baju menjadi tanktop putih tali tipis, jangan ubah wajah, pertahankan rambut, gunakan rasio 9:16';
+  const res = adaptiveEngine.analyze(prompt);
+  
+  // 1. Initial Prompt Optimal parity
+  const initialOptimal = res.optimalPrompt;
+  const directBuild = adaptiveEngine.buildOptimalPrompt(res);
+  const standaloneBuild = buildOptimalPrompt(res);
+  assert(directBuild === initialOptimal, 'Test 28: Direct buildOptimalPrompt(res) matches res.optimalPrompt exactly');
+  assert(standaloneBuild === initialOptimal, 'Test 28: Standalone buildOptimalPrompt(res) matches res.optimalPrompt exactly');
+
+  // 2. Simulating UI unchecking /hairlock
+  const updatedList = res.installedShorthands.filter(c => c !== '/hairlock');
+  const simResult = { ...res, installedShorthands: updatedList };
+  const uiUpdatedPrompt = adaptiveEngine.buildOptimalPrompt(simResult);
+  assert(!uiUpdatedPrompt.includes('/hairlock'), 'Test 28: Unchecked shorthand /hairlock removed from optimal prompt');
+  assert(uiUpdatedPrompt.includes('/outfit') && uiUpdatedPrompt.includes('/facelock') && uiUpdatedPrompt.includes('/ar 9:16'), 'Test 28: Retained shorthands remain in optimal prompt');
+  assert(uiUpdatedPrompt.toLowerCase().includes('tanktop putih tali tipis'), 'Test 28: Core prompt text retained without corruption');
+
+  // 3. Simulating UI adding related shorthand /enhance
+  const withAdded = { ...res, installedShorthands: [...res.installedShorthands, '/enhance'] };
+  const uiAddedPrompt = adaptiveEngine.buildOptimalPrompt(withAdded);
+  assert(uiAddedPrompt.endsWith('/enhance'), 'Test 28: User-added shorthand appended cleanly at the end');
+}
+
+// TEST 29: Final Output Test A (Hijab & Natural Hair)
+console.log('\n--- TEST 29: Final Output Test A (Hijab & Natural Hair) ---');
+{
+  const prompt = 'Buka hijab dan tampilkan rambut secara natural';
+  const res = adaptiveEngine.analyze(prompt);
+  const output = adaptiveEngine.buildOptimalPrompt(res);
+  const lower = output.toLowerCase();
+
+  assert(!lower.includes('rapi'), 'Test 29: Fail if contains "rapi"');
+  assert(!lower.includes('realistis'), 'Test 29: Fail if contains "realistis"');
+  assert(!lower.includes('rambut indah'), 'Test 29: Fail if contains "rambut indah"');
+  assert(!lower.includes('rambut sehat'), 'Test 29: Fail if contains "rambut sehat"');
+  assert(output.includes('/headwear-remove') && output.includes('/naturalhair'), 'Test 29: Both /headwear-remove and /naturalhair present in final prompt');
+  assert(lower.includes('lepaskan penutup kepala/hijab') && lower.includes('tampilkan rambut secara natural'), 'Test 29: Clean natural language instruction preserved');
+}
+
+// TEST 30: Final Output Test B (Outfit Complex)
+console.log('\n--- TEST 30: Final Output Test B (Outfit Complex) ---');
+{
+  const prompt = 'Ganti baju menjadi tanktop putih tali tipis, jangan ubah wajah, pertahankan rambut, gunakan rasio 9:16';
+  const res = adaptiveEngine.analyze(prompt);
+  const output = adaptiveEngine.buildOptimalPrompt(res);
+  const lower = output.toLowerCase();
+
+  assert(!lower.includes('potongan pas'), 'Test 30: Fail if contains "potongan pas"');
+  assert(!lower.includes('tekstur kain realistis'), 'Test 30: Fail if contains "tekstur kain realistis"');
+  assert(!lower.includes('premium'), 'Test 30: Fail if contains "premium"');
+  assert(!lower.includes('elegan'), 'Test 30: Fail if contains "elegan"');
+  assert(!lower.includes('bahan premium'), 'Test 30: Fail if contains "bahan premium"');
+  assert(!lower.includes('framing proporsional'), 'Test 30: Fail if contains "framing proporsional"');
+
+  assert(lower.includes('tanktop putih tali tipis'), 'Test 30: Preserves user explicit outfit detail');
+  assert(lower.includes('wajah') && (lower.includes('kunci') || lower.includes('pertahankan')), 'Test 30: Preserves face preservation instruction');
+  assert(lower.includes('rambut asli'), 'Test 30: Preserves hair preservation instruction');
+  assert(lower.includes('9:16'), 'Test 30: Preserves aspect ratio instruction');
+  assert(output.includes('/outfit') && output.includes('/facelock') && output.includes('/hairlock') && output.includes('/ar 9:16'), 'Test 30: All 4 explicit shorthands installed');
+}
+
+// TEST 31: Final Output Test C (Lighting Focused)
+console.log('\n--- TEST 31: Final Output Test C (Lighting Focused) ---');
+{
+  const prompt = 'Perbaiki pencahayaan foto';
+  const res = adaptiveEngine.analyze(prompt);
+  const output = adaptiveEngine.buildOptimalPrompt(res);
+  const lower = output.toLowerCase();
+
+  assert(lower.includes('pencahayaan') || lower.includes('lighting'), 'Test 31: Expected lighting-focused instruction');
+  assert(output.includes('/enhance'), 'Test 31: Shorthand /enhance installed');
+  assert(!output.includes('/outfit'), 'Test 31: No outfit invention');
+  assert(!output.includes('/hairlock') && !lower.includes('rambut'), 'Test 31: No hair invention');
+  assert(!output.includes('/bgremove') && !output.includes('/bgreplace'), 'Test 31: No background invention');
+  assert(!lower.includes('cinematic') && !lower.includes('vintage') && !lower.includes('dramatis'), 'Test 31: No unrequested style invention');
+}
+
+// TEST 32: Final Output Test D (Background Removal & Transparency)
+console.log('\n--- TEST 32: Final Output Test D (Background Removal & Transparency) ---');
+{
+  const prompt = 'Hapus background dan buat transparan';
+  const res = adaptiveEngine.analyze(prompt);
+  const output = adaptiveEngine.buildOptimalPrompt(res);
+  const lower = output.toLowerCase();
+
+  assert(lower.includes('latar belakang') && lower.includes('transparan'), 'Test 32: Background removal and transparency preserved');
+  assert(output.includes('/bgremove'), 'Test 32: Shorthand /bgremove installed');
+  assert(!output.includes('/bgreplace') && !lower.includes('pemandangan baru'), 'Test 32: No new background invention');
+  assert(!lower.includes('cinematic') && !lower.includes('sinematik'), 'Test 32: No cinematic invention');
+  assert(!lower.includes('color grading') && !output.includes('/colorgrade'), 'Test 32: No color grading invention');
+  assert(!lower.includes('vintage') && !lower.includes('mewah'), 'Test 32: No unrequested style');
 }
 
 console.log('\n==================================================');
