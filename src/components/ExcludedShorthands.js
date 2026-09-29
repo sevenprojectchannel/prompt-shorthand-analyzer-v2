@@ -22,8 +22,8 @@ export function renderExcludedShorthands(exclusions = []) {
     <section class="panel analyzer-card" id="card-exclusions">
       <div class="card-header">
         <div class="card-title">
-          <span class="card-step-badge">F</span>
-          <h2>H. SHORTHAND TIDAK DIPERLUKAN (DIKECUALIKAN)</h2>
+          <span class="card-step-badge">H</span>
+          <h2>SHORTHAND TIDAK DIPERLUKAN (DIKECUALIKAN)</h2>
         </div>
         <span class="badge badge-neutral">${exclusions.length} Dikecualikan</span>
       </div>

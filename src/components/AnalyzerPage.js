@@ -37,6 +37,8 @@ export function renderAnalyzerPage({
     lockedAreas = [],
     unchangedAreas = [],
     visualTransformation = {},
+    primaryShorthands = [],
+    relatedShorthands = [],
     recommendations = [],
     exclusions = []
   } = analysisResult || {};
@@ -68,6 +70,8 @@ export function renderAnalyzerPage({
   const visualTransformComp = renderVisualTransformation(visualTransformation);
 
   const recommendationsComp = renderShorthandRecommendations({
+    primaryShorthands,
+    relatedShorthands,
     recommendations,
     installedShorthands,
     onToggleShorthand: onToggleRecommendation
@@ -80,28 +84,28 @@ export function renderAnalyzerPage({
       <!-- 1. Input & Presets Card -->
       ${promptInputComp.html}
 
-      <!-- 2. Conflict Banner (Visible only if conflict detected) -->
-      ${conflictBannerComp.html}
-
-      <!-- 3. Prompt Optimal & Installed Shorthands (Prominent Highlight) -->
+      <!-- 2. Prompt Optimal & Installed Shorthands (Prominent Highlight) -->
       ${promptOptimalComp.html}
 
-      <!-- 4. Card A: Maksud Prompt -->
+      <!-- 3. Card A: Maksud Prompt -->
       ${semanticIntentComp.html}
 
-      <!-- 5. Cards B & C: Area yang Diubah vs Area yang Dikunci (Side-by-side grid on desktop) -->
+      <!-- 4. Cards B & C: Area yang Diubah vs Area yang Dikunci (Side-by-side grid on desktop) -->
       <div class="grid-2">
         ${editAreasComp.html}
         ${lockedAreasComp.html}
       </div>
 
-      <!-- 6. Card D: Transformasi Visual FROM -> TO -->
+      <!-- 5. Card D: Transformasi Visual FROM -> TO -->
       ${visualTransformComp.html}
 
-      <!-- 7. Card E: Rekomendasi Shorthand Semantik -->
+      <!-- 6. Card E & F: Shorthand Utama & Shorthand Berhubungan -->
       ${recommendationsComp.html}
 
-      <!-- 8. Card F: H. Shorthand Tidak Diperlukan (Dikecualikan) -->
+      <!-- 7. Card G: Shorthand Konflik -->
+      ${conflictBannerComp.html}
+
+      <!-- 8. Card H: Shorthand Tidak Diperlukan (Dikecualikan) -->
       ${exclusionsComp.html}
     </div>
   `;
@@ -110,9 +114,9 @@ export function renderAnalyzerPage({
     html,
     bindEvents(container) {
       promptInputComp.bindEvents(container);
-      conflictBannerComp.bindEvents(container);
       promptOptimalComp.bindEvents(container);
       recommendationsComp.bindEvents(container);
+      conflictBannerComp.bindEvents(container);
     }
   };
 }

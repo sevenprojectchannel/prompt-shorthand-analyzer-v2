@@ -1,12 +1,13 @@
 /**
- * Semantic Engine V2
- * Pipeline lengkap:
- * Normalisasi -> Semantic Intent -> Entity/Area -> Edit vs Preservation ->
- * Conflict Detection -> Shorthand Mapping (WAJIB, DISARANKAN, OPSIONAL) ->
- * Exclusions -> Visual Transformation -> Optimal Prompt.
+ * Semantic Engine V2.1
+ * Semantic Shorthand Knowledge Base-Driven Pipeline:
+ * USER PROMPT -> SEMANTIC INTENT -> AREA / ENTITY EXTRACTION ->
+ * CATALOG SEMANTIC SEARCH -> CANDIDATE SHORTHANDS -> COMPATIBILITY CHECK ->
+ * CONFLICT CHECK -> RELEVANCE SCORING -> RECOMMENDATION LEVEL (WAJIB, DISARANKAN, OPSIONAL) ->
+ * EXCLUSIONS -> PROMPT OPTIMAL.
  */
 
-import { INITIAL_SHORTHAND_CATALOG } from '../data/catalogData.js';
+import { INITIAL_SHORTHAND_CATALOG, matchShorthandScore } from '../data/catalogData.js';
 
 export class SemanticEngine {
   constructor(catalog = INITIAL_SHORTHAND_CATALOG) {
@@ -29,42 +30,56 @@ export class SemanticEngine {
     const existingShorthands = this.extractExistingShorthands(rawPrompt);
     const textWithoutShorthands = this.stripShorthands(rawPrompt);
 
-    // 1. Intent Analysis
+    // 1. Semantic Intent Analysis
     const intentData = this.analyzeIntent(textWithoutShorthands);
 
-    // 2. Entity & Area Extraction (Separating Edit vs Preservation)
+    // 2. Area & Entity Extraction (Separating Edit vs Preservation)
     const { editAreas, lockedAreas, unchangedAreas } = this.extractAreas(textWithoutShorthands, intentData);
 
-    // 3. Conflict Detection
-    const conflicts = this.detectConflicts(editAreas, lockedAreas, existingShorthands);
+    // 3. Primary Shorthands Detection & Deduplication (Direct User Intent)
+    const primaryCandidates = this.queryPrimaryShorthands(textWithoutShorthands, editAreas, lockedAreas, intentData);
+    const primaryShorthands = this.deduplicateByFunctionGroup(primaryCandidates).map(p => ({
+      ...p,
+      isPrimary: true,
+      checked: true,
+      priority: 'WAJIB'
+    }));
 
-    // 4. Shorthand Recommendations & Exclusions
-    const { recommendations, exclusions } = this.evaluateShorthands(
-      intentData,
-      editAreas,
-      lockedAreas,
-      existingShorthands
-    );
+    // 4. Relationship Discovery & Related Shorthands (OFF by default, semantic deduplicated, no arbitrary limit)
+    const relatedShorthands = this.discoverRelatedShorthands(textWithoutShorthands, primaryShorthands, editAreas, lockedAreas);
 
-    // Determine installed shorthands (default recommended WAJIB + DISARANKAN, or user override)
+    // Combine into all recommendations (Primary first, then Related)
+    const recommendations = [...primaryShorthands, ...relatedShorthands];
+
+    // 5. Conflict Detection (Lock vs Edit & Shorthand Conflict Matrix)
+    const conflicts = this.detectConflicts(editAreas, lockedAreas, primaryShorthands, existingShorthands);
+
+    // 6. Exclusions (Shorthands not needed)
+    const exclusions = this.evaluateExclusions(recommendations, primaryShorthands);
+
+    // 7. Installed Shorthands determination (Primary active by default, or user override)
     let installedShorthands = [];
     if (installedOverrides && Array.isArray(installedOverrides)) {
       installedShorthands = [...installedOverrides];
     } else {
-      // Default auto-install WAJIB and DISARANKAN recommendations
-      const autoInclude = recommendations
-        .filter(r => r.priority === 'WAJIB' || r.priority === 'DISARANKAN')
+      // Primary shorthands are installed by default, sorted by prompt natural order
+      const autoInclude = primaryShorthands
+        .sort((a, b) => (a.promptIndex ?? 999) - (b.promptIndex ?? 999))
         .map(r => r.code);
-      
-      // Combine with explicit existing shorthands typed by user
       const set = new Set([...existingShorthands, ...autoInclude]);
       installedShorthands = Array.from(set);
     }
 
-    // 5. Visual Transformation FROM -> TO
+    // Sync checked and active states on recommendations based on installedShorthands
+    for (const rec of recommendations) {
+      rec.checked = installedShorthands.includes(rec.code);
+      rec.active = rec.checked;
+    }
+
+    // 8. Visual Transformation FROM -> TO
     const visualTransformation = this.generateVisualTransformation(editAreas, lockedAreas, textWithoutShorthands);
 
-    // 6. Optimal Prompt Construction
+    // 9. Optimal Prompt Construction (Main Prompt + Primary + Checked Related only)
     const optimalPrompt = this.buildOptimalPrompt(textWithoutShorthands, installedShorthands);
 
     return {
@@ -76,6 +91,8 @@ export class SemanticEngine {
       lockedAreas,
       unchangedAreas,
       conflicts,
+      primaryShorthands,
+      relatedShorthands,
       recommendations,
       exclusions,
       installedShorthands,
@@ -120,40 +137,46 @@ export class SemanticEngine {
       summary = 'Memperbaiki dan meningkatkan kualitas pencahayaan serta dynamic range pada foto.';
       priority = 'HIGH';
       category = 'LIGHTING';
-    } else if (lower.includes('hijab') || lower.includes('kerudung') || lower.includes('headwear')) {
+    } else if (lower.includes('hijab') || lower.includes('kerudung') || lower.includes('headwear') || lower.includes('penutup kepala')) {
       primaryAction = 'PELEPASAN_PENUTUP_KEPALA';
-      primaryTarget = 'Hijab / Headwear';
-      summary = 'Melepaskan atau menghapus penutup kepala/hijab dengan tetap menjaga integritas subjek.';
+      primaryTarget = 'Hijab / Penutup Kepala';
+      summary = 'Melepaskan atau menghapus penutup kepala/hijab dengan rekonstruksi rambut alami subjek.';
       priority = 'HIGH';
       category = 'HEADWEAR';
-    } else if (lower.includes('baju') || lower.includes('pakaian') || lower.includes('outfit') || lower.includes('tanktop') || lower.includes('gaun')) {
+    } else if (lower.includes('baju') || lower.includes('pakaian') || lower.includes('outfit') || lower.includes('tanktop') || lower.includes('gaun') || lower.includes('kemeja')) {
       primaryAction = 'PENGGANTIAN_BUSANA';
       primaryTarget = 'Pakaian & Outfit';
       summary = 'Mengganti busana subjek sesuai spesifikasi pakaian yang diminta.';
       priority = 'HIGH';
       category = 'OUTFIT';
-    } else if (lower.includes('tajam') || lower.includes('sharpen') || lower.includes('perjelas') || lower.includes('jernih')) {
+    } else if (lower.includes('tajam') || lower.includes('sharpen') || lower.includes('perjelas') || lower.includes('jernih') || lower.includes('ketajaman')) {
       primaryAction = 'PENAJAMAN_DETAIL';
       primaryTarget = 'Mikrokontras & Detail';
       summary = 'Meningkatkan mikrokontras ketajaman tekstur dan resolusi visual foto.';
       priority = 'HIGH';
-      category = 'QUALITY';
-    } else if (lower.includes('hapus latar') || lower.includes('hapus background') || lower.includes('transparan') || lower.includes('hilangkan background')) {
+      category = 'IMAGE_QUALITY';
+    } else if (lower.includes('hapus latar') || lower.includes('hapus background') || lower.includes('transparan') || lower.includes('hilangkan background') || lower.includes('buang background')) {
       primaryAction = 'PENGHAPUSAN_LATAR';
       primaryTarget = 'Latar Belakang / Background';
-      summary = 'Mengisolasi subjek utama dan menghapus latar belakang menjadi transparan.';
+      summary = 'Mengisolasi subjek utama dan menghapus latar belakang menjadi transparan (matte alpha).';
       priority = 'CRITICAL';
+      category = 'TRANSPARENCY';
+    } else if (lower.includes('ganti background') || lower.includes('ganti latar') || lower.includes('latar baru') || lower.includes('gunakan latar baru') || lower.includes('pemandangan baru')) {
+      primaryAction = 'PENGGANTIAN_LATAR';
+      primaryTarget = 'Latar Belakang / Background';
+      summary = 'Mengganti latar belakang dengan pemandangan atau suasana lingkungan baru.';
+      priority = 'HIGH';
       category = 'BACKGROUND';
-    } else if (lower.includes('rasio') || lower.includes('9:16') || lower.includes('16:9') || lower.includes('1:1') || lower.includes('aspect ratio')) {
+    } else if (lower.includes('rasio') || lower.includes('9:16') || lower.includes('16:9') || lower.includes('1:1') || lower.includes('4:5') || lower.includes('aspect ratio')) {
       primaryAction = 'PENYESUAIAN_RASIO_KANVAS';
       primaryTarget = 'Kanvas & Dimensi';
       summary = 'Menyetel rasio kanvas gambar ke dimensi target yang ditentukan.';
       priority = 'HIGH';
-      category = 'RATIO';
-    } else if (lower.includes('rambut') || lower.includes('hair') || lower.includes('botak')) {
+      category = 'CANVAS_RATIO';
+    } else if (lower.includes('rambut') || lower.includes('hair') || lower.includes('botak') || lower.includes('cukur')) {
       primaryAction = 'MODIFIKASI_RAMBUT';
       primaryTarget = 'Rambut & Gaya Rambut';
-      summary = 'Menyesuaikan struktur, warna, atau gaya rambut subjek.';
+      summary = 'Menyesuaikan struktur, warna, atau gaya potongan rambut subjek.';
       priority = 'HIGH';
       category = 'HAIR';
     }
@@ -173,7 +196,7 @@ export class SemanticEngine {
     const lockedAreas = [];
     const detectedTargets = new Set();
 
-    // Helper to check for negation/preservation keywords preceding an entity
+    // Helper: checks if entity is explicitly locked/preserved
     const checkPreservation = (entityKeywords) => {
       for (const kw of entityKeywords) {
         if (!lower.includes(kw)) continue;
@@ -181,13 +204,17 @@ export class SemanticEngine {
           `jangan ubah ${kw}`,
           `jangan ganti ${kw}`,
           `jangan sentuh ${kw}`,
+          `jangan mengubah ${kw}`,
           `pertahankan ${kw}`,
           `kunci ${kw}`,
           `jaga ${kw}`,
           `${kw} asli`,
           `${kw} tetap`,
+          `${kw} sama`,
+          `${kw} harus tetap sama`,
           `keep ${kw}`,
-          `same ${kw}`
+          `same ${kw}`,
+          `preserve ${kw}`
         ];
         if (preservationPatterns.some(p => lower.includes(p))) {
           return true;
@@ -196,7 +223,7 @@ export class SemanticEngine {
       return false;
     };
 
-    // Helper to check for explicit edit keywords preceding an entity
+    // Helper: checks if entity is explicitly edited
     const checkEdit = (entityKeywords) => {
       for (const kw of entityKeywords) {
         if (!lower.includes(kw)) continue;
@@ -209,6 +236,7 @@ export class SemanticEngine {
           `tingkatkan ${kw}`,
           `buat ${kw}`,
           `lepas ${kw}`,
+          `lepaskan ${kw}`,
           `buka ${kw}`,
           `change ${kw}`,
           `remove ${kw}`
@@ -216,11 +244,12 @@ export class SemanticEngine {
         if (editPatterns.some(p => lower.includes(p))) {
           return true;
         }
-        // Direct descriptive action matching
+        // Direct descriptive patterns
         if (kw === 'pencahayaan' && (lower.includes('perbaiki pencahayaan') || lower.includes('lighting') || lower.includes('terangkan'))) return true;
-        if (kw === 'hijab' && (lower.includes('hapus hijab') || lower.includes('buka hijab') || lower.includes('tanpa hijab'))) return true;
+        if (kw === 'hijab' && (lower.includes('hapus hijab') || lower.includes('lepas hijab') || lower.includes('lepaskan hijab') || lower.includes('tanpa hijab'))) return true;
         if (kw === 'baju' && (lower.includes('tanktop') || lower.includes('kemeja') || lower.includes('gaun') || lower.includes('jaket'))) return true;
-        if (kw === 'rasio' && (lower.includes('9:16') || lower.includes('16:9') || lower.includes('1:1'))) return true;
+        if (kw === 'rasio' && (lower.includes('9:16') || lower.includes('16:9') || lower.includes('1:1') || lower.includes('4:5'))) return true;
+        if (kw === 'latar' && (lower.includes('latar baru') || lower.includes('gunakan latar baru') || lower.includes('hapus latar'))) return true;
       }
       return false;
     };
@@ -242,16 +271,17 @@ export class SemanticEngine {
           entity: 'FACE',
           label: 'Wajah & Fitur Wajah',
           action: 'EDIT',
-          description: 'Memodifikasi karakteristik atau ekspresi wajah subjek.'
+          description: 'Memodifikasi karakteristik atau ekspresi wajah subjek.',
+          shorthand: lower.includes('ganti wajah') ? '/facechange' : '/faceedit'
         });
       }
     }
 
-    // 2. HIJAB / PENUTUP KEPALA
-    const hijabKw = ['hijab', 'kerudung', 'jilbab', 'penutup kepala', 'topi'];
-    if (hijabKw.some(k => lower.includes(k))) {
+    // 2. PENUTUP KEPALA / HIJAB
+    const headwearKw = ['hijab', 'kerudung', 'jilbab', 'penutup kepala', 'topi'];
+    if (headwearKw.some(k => lower.includes(k))) {
       detectedTargets.add('HEADWEAR');
-      if (checkPreservation(hijabKw)) {
+      if (checkPreservation(headwearKw)) {
         lockedAreas.push({
           entity: 'HEADWEAR',
           label: 'Penutup Kepala / Hijab',
@@ -271,7 +301,7 @@ export class SemanticEngine {
     }
 
     // 3. PAKAIAN / OUTFIT
-    const outfitKw = ['baju', 'pakaian', 'outfit', 'busana', 'tanktop', 'kemeja', 'celana', 'gaun'];
+    const outfitKw = ['baju', 'pakaian', 'outfit', 'busana', 'tanktop', 'kemeja', 'celana', 'gaun', 'jaket'];
     if (outfitKw.some(k => lower.includes(k))) {
       detectedTargets.add('OUTFIT');
       if (checkPreservation(outfitKw)) {
@@ -311,7 +341,7 @@ export class SemanticEngine {
           description: 'Lingkungan, latar belakang, dan pencahayaan ambien dikunci.',
           shorthand: '/backgroundlock'
         });
-      } else if (lower.includes('hapus') || lower.includes('transparan') || lower.includes('hilangkan')) {
+      } else if (lower.includes('hapus') || lower.includes('transparan') || lower.includes('hilangkan') || lower.includes('buang')) {
         editAreas.push({
           entity: 'BACKGROUND',
           label: 'Latar Belakang (Background)',
@@ -319,12 +349,12 @@ export class SemanticEngine {
           description: 'Latar belakang dihapus dan diubah menjadi transparan bersih.',
           shorthand: '/bgremove'
         });
-      } else if (lower.includes('ganti') || lower.includes('ubah')) {
+      } else if (lower.includes('ganti') || lower.includes('ubah') || lower.includes('baru') || lower.includes('gunakan latar baru') || lower.includes('studio')) {
         editAreas.push({
           entity: 'BACKGROUND',
           label: 'Latar Belakang (Background)',
           action: 'REPLACE',
-          description: 'Mengganti latar belakang dengan pemandangan baru.',
+          description: 'Mengganti latar belakang dengan suasana atau pemandangan baru.',
           shorthand: '/bgreplace'
         });
       }
@@ -343,10 +373,10 @@ export class SemanticEngine {
     }
 
     // 6. KETAJAMAN & KUALITAS (SHARPNESS)
-    if (lower.includes('tajam') || lower.includes('sharpen') || lower.includes('perjelas') || lower.includes('detail')) {
-      detectedTargets.add('QUALITY');
+    if (lower.includes('tajam') || lower.includes('sharpen') || lower.includes('perjelas') || lower.includes('detail') || lower.includes('ketajaman')) {
+      detectedTargets.add('IMAGE_QUALITY');
       editAreas.push({
-        entity: 'QUALITY',
+        entity: 'IMAGE_QUALITY',
         label: 'Ketajaman & Mikrokontras',
         action: 'SHARPEN',
         description: 'Detail halus dan mikrokontras foto dipertajam secara profesional.',
@@ -355,16 +385,17 @@ export class SemanticEngine {
     }
 
     // 7. RASIO ASPEK (ASPECT RATIO / CANVAS)
-    if (lower.includes('rasio') || lower.includes('9:16') || lower.includes('16:9') || lower.includes('1:1') || lower.includes('format')) {
-      detectedTargets.add('CANVAS');
+    if (lower.includes('rasio') || lower.includes('9:16') || lower.includes('16:9') || lower.includes('1:1') || lower.includes('4:5') || lower.includes('format')) {
+      detectedTargets.add('CANVAS_RATIO');
       let targetRatio = 'Rasio baru';
       let code = '/ar 9:16';
       if (lower.includes('9:16')) { targetRatio = '9:16 (Vertical)'; code = '/ar 9:16'; }
       else if (lower.includes('16:9')) { targetRatio = '16:9 (Landscape)'; code = '/ar 16:9'; }
       else if (lower.includes('1:1')) { targetRatio = '1:1 (Persegi)'; code = '/ar 1:1'; }
+      else if (lower.includes('4:5')) { targetRatio = '4:5 (Portrait)'; code = '/ar 4:5'; }
 
       editAreas.push({
-        entity: 'CANVAS',
+        entity: 'CANVAS_RATIO',
         label: 'Dimensi & Rasio Kanvas',
         action: 'SET_ASPECT_RATIO',
         description: `Mengatur rasio kanvas gambar menjadi format ${targetRatio}.`,
@@ -374,9 +405,9 @@ export class SemanticEngine {
 
     // 8. FRAMING / FULL BODY
     if (lower.includes('full body') || lower.includes('seluruh tubuh') || lower.includes('badan penuh')) {
-      detectedTargets.add('COMPOSITION');
+      detectedTargets.add('BODY_POSE');
       editAreas.push({
-        entity: 'COMPOSITION',
+        entity: 'BODY_POSE',
         label: 'Komposisi & Framing',
         action: 'FULL_BODY_EXPAND',
         description: 'Memperluas framing gambar untuk menampilkan subjek dari kepala hingga kaki.',
@@ -385,26 +416,27 @@ export class SemanticEngine {
     }
 
     // 9. RAMBUT (HAIR)
-    const hairKw = ['rambut', 'hair', 'botak'];
+    const hairKw = ['rambut', 'hair', 'botak', 'cukur'];
     if (hairKw.some(k => lower.includes(k))) {
       detectedTargets.add('HAIR');
       const isPreserved = checkPreservation(hairKw);
-      const isEdited = checkEdit(hairKw) || lower.includes('botak') || lower.includes('merah') || lower.includes('cat');
+      const isEdited = checkEdit(hairKw) || lower.includes('botak') || lower.includes('merah') || lower.includes('cat') || lower.includes('gaya rambut');
 
       if (isPreserved && isEdited) {
-        // Both preserved AND edited -> this will be caught by conflict detector!
+        // Both preserved AND edited -> This triggers CONFLICT DETECTED
         lockedAreas.push({
           entity: 'HAIR',
           label: 'Rambut Subjek',
           action: 'LOCKED',
-          description: 'Struktur dan warna rambut asli subjek diminta dipertahankan.',
+          description: 'Mempertahankan rambut asli subjek.',
           shorthand: '/hairlock'
         });
         editAreas.push({
           entity: 'HAIR',
           label: 'Rambut Subjek',
           action: 'EDIT_STYLE',
-          description: lower.includes('botak') ? 'Memangkas rambut menjadi botak' : 'Mengubah gaya/warna rambut'
+          description: lower.includes('botak') ? 'Memangkas rambut menjadi botak' : 'Mengubah gaya rambut subjek',
+          shorthand: '/hairchange'
         });
       } else if (isPreserved) {
         lockedAreas.push({
@@ -419,18 +451,19 @@ export class SemanticEngine {
           entity: 'HAIR',
           label: 'Rambut Subjek',
           action: 'EDIT',
-          description: lower.includes('botak') ? 'Mengubah gaya rambut menjadi botak' : 'Mengubah warna/gaya rambut'
+          description: lower.includes('botak') ? 'Mengubah gaya rambut menjadi botak' : 'Mengubah gaya atau warna rambut',
+          shorthand: '/hairchange'
         });
       }
     }
 
     // 10. TUBUH / BODY POSE
     const bodyKw = ['tubuh', 'badan', 'pose', 'postur'];
-    if (bodyKw.some(k => lower.includes(k))) {
-      detectedTargets.add('BODY');
+    if (bodyKw.some(k => lower.includes(k)) && !detectedTargets.has('BODY_POSE')) {
+      detectedTargets.add('BODY_POSE');
       if (checkPreservation(bodyKw)) {
         lockedAreas.push({
-          entity: 'BODY',
+          entity: 'BODY_POSE',
           label: 'Postur Tubuh & Anatomi',
           action: 'LOCKED',
           description: 'Pose, siluet, dan proporsi anatomis tubuh dipertahankan.',
@@ -439,12 +472,12 @@ export class SemanticEngine {
       }
     }
 
-    // Determine unchanged areas: all common domains not in editAreas or lockedAreas
+    // Determine unchanged areas: all standard domains not touched
     const allKnownDomains = [
       { key: 'FACE', label: 'Wajah & Identitas' },
       { key: 'BACKGROUND', label: 'Latar Belakang' },
       { key: 'OUTFIT', label: 'Pakaian & Busana' },
-      { key: 'BODY', label: 'Postur & Anatomi Tubuh' },
+      { key: 'BODY_POSE', label: 'Postur & Anatomi Tubuh' },
       { key: 'LIGHTING', label: 'Pencahayaan' }
     ];
 
@@ -460,7 +493,390 @@ export class SemanticEngine {
     return { editAreas, lockedAreas, unchangedAreas };
   }
 
-  detectConflicts(editAreas, lockedAreas, existingShorthands) {
+  /**
+   * Helper to find the earliest occurrence of an item's triggers or entity keywords in prompt
+   */
+  findPromptIndex(text, item, extraKeywords = []) {
+    const lower = text.toLowerCase();
+    let minIdx = 999;
+    const candidates = [...(item.semanticTriggers || []), ...extraKeywords];
+    for (const cand of candidates) {
+      if (!cand || cand.length < 3) continue;
+      const idx = lower.indexOf(cand.toLowerCase());
+      if (idx !== -1 && idx < minIdx) {
+        minIdx = idx;
+      }
+    }
+    return minIdx;
+  }
+
+  /**
+   * Query Primary Shorthands directly linked to user intent
+   */
+  queryPrimaryShorthands(text, editAreas, lockedAreas, intentData) {
+    const candidateMap = new Map();
+
+    // 1. Direct matches from locked areas (WAJIB)
+    for (const lock of lockedAreas) {
+      if (lock.shorthand) {
+        const item = this.catalog.find(c => c.code === lock.shorthand);
+        if (item) {
+          const promptIdx = this.findPromptIndex(text, item, [lock.label, lock.entity, 'jangan', 'pertahankan', 'kunci']);
+          candidateMap.set(item.code, {
+            item,
+            code: item.code,
+            name: item.name,
+            category: item.category,
+            target: lock.label,
+            priority: 'WAJIB',
+            reason: `Kritis untuk menjamin ${lock.description.toLowerCase()}`,
+            score: 100,
+            promptIndex: promptIdx
+          });
+        }
+      }
+    }
+
+    // 2. Direct matches from edit areas (WAJIB)
+    for (const edit of editAreas) {
+      if (edit.shorthand) {
+        const item = this.catalog.find(c => c.code === edit.shorthand);
+        if (item) {
+          const promptIdx = this.findPromptIndex(text, item, [edit.label, edit.entity, 'ubah', 'ganti', 'hapus']);
+          candidateMap.set(item.code, {
+            item,
+            code: item.code,
+            name: item.name,
+            category: edit.category || item.category,
+            target: edit.label,
+            priority: 'WAJIB',
+            reason: `Mendukung eksekusi ${edit.description.toLowerCase()}`,
+            score: 95,
+            promptIndex: promptIdx
+          });
+        }
+      }
+    }
+
+    // 3. Synergy enhancers directly tied to edited areas
+    if (editAreas.some(e => e.entity === 'LIGHTING') && !candidateMap.has('/enhance')) {
+      const enhanceItem = this.catalog.find(c => c.code === '/enhance');
+      if (enhanceItem) {
+        candidateMap.set('/enhance', {
+          item: enhanceItem,
+          code: enhanceItem.code,
+          name: enhanceItem.name,
+          category: enhanceItem.category,
+          target: 'Seluruh Gambar',
+          priority: 'WAJIB',
+          reason: 'Mendukung peningkatan dan penyeimbangan kualitas visual pencahayaan secara menyeluruh.',
+          score: 85,
+          promptIndex: this.findPromptIndex(text, enhanceItem, ['pencahayaan', 'lighting'])
+        });
+      }
+    }
+
+    if (editAreas.some(e => e.entity === 'IMAGE_QUALITY') && !candidateMap.has('/sharpen')) {
+      const sharpenItem = this.catalog.find(c => c.code === '/sharpen');
+      if (sharpenItem) {
+        candidateMap.set('/sharpen', {
+          item: sharpenItem,
+          code: sharpenItem.code,
+          name: sharpenItem.name,
+          category: sharpenItem.category,
+          target: 'Detail & Mikrokontras',
+          priority: 'WAJIB',
+          reason: 'Meningkatkan kejernihan tekstur dan mikrokontras tepian objek.',
+          score: 85,
+          promptIndex: this.findPromptIndex(text, sharpenItem, ['tajam', 'sharpen'])
+        });
+      }
+    }
+
+    // 4. Match items against Knowledge Base semanticTriggers for direct prompt actions
+    for (const item of this.catalog) {
+      if (candidateMap.has(item.code)) continue;
+
+      const score = matchShorthandScore(item, text);
+      if (score >= 70) {
+        // Do not add items that conflict with an active lock
+        const conflictsWithLock = lockedAreas.some(lock => {
+          if (lock.shorthand && item.conflicts && item.conflicts.includes(lock.shorthand)) return true;
+          const lockItem = this.catalog.find(c => c.code === lock.shorthand);
+          if (lockItem && lockItem.conflicts && lockItem.conflicts.includes(item.code)) return true;
+          return false;
+        });
+        if (conflictsWithLock) continue;
+
+        const isLock = item.category === 'LOCK_PRESERVATION';
+        const promptIdx = this.findPromptIndex(text, item);
+        candidateMap.set(item.code, {
+          item,
+          code: item.code,
+          name: item.name,
+          category: item.category,
+          target: item.target,
+          priority: 'WAJIB',
+          reason: `Instruksi user cocok dengan trigger semantik '${item.name}'.`,
+          score,
+          promptIndex: promptIdx
+        });
+      }
+    }
+
+    return Array.from(candidateMap.values());
+  }
+
+  /**
+   * Semantic Function Deduplication:
+   * Satu Fungsi Semantik (functionGroup) = Satu Shorthand Representatif Terbaik.
+   * Kandidat lain disimpan sebagai equivalentTo pada representatif.
+   */
+  deduplicateByFunctionGroup(candidates) {
+    const groupMap = new Map();
+
+    for (const cand of candidates) {
+      const fg = cand.item?.functionGroup || cand.item?.category || cand.code;
+      if (!groupMap.has(fg)) {
+        groupMap.set(fg, [cand]);
+      } else {
+        groupMap.get(fg).push(cand);
+      }
+    }
+
+    const result = [];
+    for (const [fg, items] of groupMap.entries()) {
+      if (items.length === 1) {
+        result.push(items[0]);
+        continue;
+      }
+
+      // Priority sort:
+      // 1. preferredRepresentative === true
+      // 2. status: CORE > APPROVED > CUSTOM > DISCOVERED
+      // 3. higher score
+      // 4. shorter code length / clarity
+      items.sort((a, b) => {
+        const prefA = a.item?.preferredRepresentative ? 1 : 0;
+        const prefB = b.item?.preferredRepresentative ? 1 : 0;
+        if (prefB !== prefA) return prefB - prefA;
+
+        const statusWeight = { CORE: 4, APPROVED: 3, CUSTOM: 2, DISCOVERED: 1, DISABLED: 0 };
+        const sA = statusWeight[a.item?.status] || 2;
+        const sB = statusWeight[b.item?.status] || 2;
+        if (sB !== sA) return sB - sA;
+
+        if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+
+        return a.code.length - b.code.length;
+      });
+
+      const representative = { ...items[0] };
+      const otherCodes = items.slice(1).map(i => i.code);
+      const combinedEquivalents = Array.from(new Set([
+        ...(representative.item?.equivalentTo || []),
+        ...otherCodes,
+        ...items.slice(1).flatMap(i => i.item?.equivalentTo || [])
+      ])).filter(c => c !== representative.code);
+
+      representative.item = {
+        ...representative.item,
+        equivalentTo: combinedEquivalents
+      };
+      representative.equivalentTo = combinedEquivalents;
+
+      result.push(representative);
+    }
+
+    return result;
+  }
+
+  /**
+   * Conflict check helper between an item and active locks / primaries
+   */
+  hasConflict(item, lockedShorthands, primaryCodes) {
+    if (!item) return false;
+    for (const lockCode of lockedShorthands) {
+      if (item.code === lockCode) continue;
+      if (item.conflicts && item.conflicts.includes(lockCode)) return true;
+      const lockItem = this.catalog.find(c => c.code === lockCode);
+      if (lockItem && lockItem.conflicts && lockItem.conflicts.includes(item.code)) return true;
+    }
+    for (const primCode of primaryCodes) {
+      if (item.code === primCode) continue;
+      if (item.conflicts && item.conflicts.includes(primCode)) return true;
+      const primItem = this.catalog.find(c => c.code === primCode);
+      if (primItem && primItem.conflicts && primItem.conflicts.includes(item.code)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Discover related shorthands using Semantic Graph and catalog relationships.
+   * Related shorthands are OFF by default and deduplicated by functionGroup.
+   * No arbitrary limit (all distinct relevant function groups are included).
+   */
+  discoverRelatedShorthands(text, primaryCandidates, editAreas, lockedAreas) {
+    const primaryCodes = new Set(primaryCandidates.map(c => c.code));
+    for (const p of primaryCandidates) {
+      if (p.equivalentTo) {
+        for (const eq of p.equivalentTo) primaryCodes.add(eq);
+      }
+    }
+
+    const primaryFunctionGroups = new Set(primaryCandidates.map(c => c.item?.functionGroup || c.item?.category));
+    const primaryEntities = new Set([
+      ...editAreas.map(e => e.entity),
+      ...lockedAreas.map(l => l.entity)
+    ]);
+
+    const lockedShorthands = new Set(lockedAreas.map(l => l.shorthand).filter(Boolean));
+    const relatedMap = new Map();
+
+    // 1. Direct relationships defined in primary items
+    for (const prim of primaryCandidates) {
+      const rels = prim.item?.relationships || [];
+      for (const rel of rels) {
+        if (!rel.code || primaryCodes.has(rel.code)) continue;
+
+        const targetItem = this.catalog.find(c => c.code === rel.code);
+        if (!targetItem) continue;
+
+        if (this.hasConflict(targetItem, lockedShorthands, primaryCodes)) continue;
+        if (matchShorthandScore(targetItem, text) < 0) continue;
+
+        const fg = targetItem.functionGroup || targetItem.category;
+        if (primaryFunctionGroups.has(fg)) continue;
+
+        // Semantic validation: do not introduce headwear removal unless headwear is an active domain in prompt
+        if (targetItem.category === 'HEADWEAR' && !primaryEntities.has('HEADWEAR')) {
+          continue;
+        }
+
+        if (!relatedMap.has(targetItem.code)) {
+          relatedMap.set(targetItem.code, {
+            item: targetItem,
+            code: targetItem.code,
+            name: targetItem.name,
+            category: targetItem.category,
+            target: targetItem.target,
+            functionGroup: fg,
+            description: targetItem.description,
+            relationship: rel.relationType || 'DIRECTLY_RELATED',
+            reason: rel.reason || `Berhubungan dengan ${prim.name}`,
+            source: targetItem.source || 'CORE',
+            priority: 'DISARANKAN',
+            score: 80,
+            isPrimary: false,
+            checked: false
+          });
+        }
+      }
+    }
+
+    // 2. Semantic Graph expansion across domains
+    const graphConnections = {
+      HEADWEAR: [
+        { category: 'HAIR', relation: 'REVEALED_BY_REMOVAL', reason: 'Terekspos ketika hijab atau penutup kepala dibuka.' },
+        { category: 'LOCK_PRESERVATION', target: 'FACE_IDENTITY', relation: 'PRESERVATION_RELATED', reason: 'Melindungi identitas wajah tetap konsisten saat penutup kepala dimodifikasi.' },
+        { category: 'LOCK_PRESERVATION', target: 'HAIR', relation: 'PRESERVATION_RELATED', reason: 'Menjaga rambut tetap konsisten.' },
+        { category: 'LIGHTING', relation: 'QUALITY_RELATED', reason: 'Menyeimbangkan pencahayaan pada bagian kepala yang baru terbuka.' },
+        { category: 'IMAGE_QUALITY', relation: 'QUALITY_RELATED', reason: 'Menajamkan detail helai rambut natural.' }
+      ],
+      OUTFIT: [
+        { category: 'LOCK_PRESERVATION', target: 'FACE_IDENTITY', relation: 'PRESERVATION_RELATED', reason: 'Menjaga identitas wajah tetap terlindungi saat pakaian diganti.' },
+        { category: 'LOCK_PRESERVATION', target: 'BODY_POSE', relation: 'PRESERVATION_RELATED', reason: 'Menjaga proporsi tubuh dan postur asli subjek saat mengganti busana.' },
+        { category: 'LOCK_PRESERVATION', target: 'HAIR', relation: 'PRESERVATION_RELATED', reason: 'Menjaga rambut tetap konsisten saat pakaian diganti.' },
+        { category: 'LOCK_PRESERVATION', target: 'BACKGROUND', relation: 'PRESERVATION_RELATED', reason: 'Mengunci latar belakang asli agar fokus perubahan tertuju pada busana baru.' },
+        { category: 'BODY_POSE', relation: 'CONTEXTUAL', reason: 'Menyesuaikan pose atau framing tubuh agar selaras dengan busana baru.' },
+        { category: 'LIGHTING', relation: 'QUALITY_RELATED', reason: 'Menyeimbangkan pencahayaan pada kain pakaian baru.' },
+        { category: 'IMAGE_QUALITY', relation: 'QUALITY_RELATED', reason: 'Mempertegas detail lipatan dan mikrokontras tekstur kain.' },
+        { category: 'BACKGROUND', relation: 'CONTEXTUAL', reason: 'Menyelaraskan pemandangan latar belakang dengan busana baru.' },
+        { category: 'COLOR_TONE', relation: 'CONTEXTUAL', reason: 'Grading tone warna agar busana menyatu secara harmonis.' },
+        { category: 'STYLE_EFFECT', relation: 'CONTEXTUAL', reason: 'Penyelarasan estetika gaya visual sinematik dengan busana baru.' }
+      ],
+      BACKGROUND: [
+        { category: 'LIGHTING', relation: 'QUALITY_RELATED', reason: 'Menyelaraskan pencahayaan subjek dengan pemandangan latar belakang.' },
+        { category: 'LOCK_PRESERVATION', target: 'FACE_IDENTITY', relation: 'PRESERVATION_RELATED', reason: 'Mengunci identitas wajah di latar baru.' },
+        { category: 'LOCK_PRESERVATION', target: 'OUTFIT', relation: 'PRESERVATION_RELATED', reason: 'Menjaga busana asli subjek saat latar belakang diganti.' },
+        { category: 'COLOR_TONE', relation: 'CONTEXTUAL', reason: 'Menyelaraskan grading warna subjek dan background.' },
+        { category: 'STYLE_EFFECT', relation: 'CONTEXTUAL', reason: 'Menyesuaikan gaya artistik scene baru.' },
+        { category: 'IMAGE_QUALITY', relation: 'QUALITY_RELATED', reason: 'Mempertahankan ketajaman subjek terhadap latar baru.' }
+      ],
+      LIGHTING: [
+        { category: 'IMAGE_QUALITY', relation: 'QUALITY_RELATED', reason: 'Menyempurnakan mikrokontras dan ketajaman setelah pencahayaan ditingkatkan.' },
+        { category: 'COLOR_TONE', relation: 'CONTEXTUAL', reason: 'Memberikan nuansa tone warna estetik pada pencahayaan.' }
+      ],
+      IMAGE_QUALITY: [
+        { category: 'LIGHTING', relation: 'QUALITY_RELATED', reason: 'Komplementer dengan peningkatan exposure dan dynamic range.' }
+      ],
+      CANVAS_RATIO: [
+        { category: 'BODY_POSE', relation: 'COMPOSITION_RELATED', reason: 'Menyesuaikan framing tubuh (full body / portrait) sesuai format rasio.' }
+      ],
+      HAIR: [
+        { category: 'LOCK_PRESERVATION', target: 'FACE_IDENTITY', relation: 'PRESERVATION_RELATED', reason: 'Menjaga identitas wajah saat gaya rambut disesuaikan.' },
+        { category: 'IMAGE_QUALITY', relation: 'QUALITY_RELATED', reason: 'Menajamkan helai dan tekstur rambut.' }
+      ],
+      FACE: [
+        { category: 'LOCK_PRESERVATION', target: 'HAIR', relation: 'PRESERVATION_RELATED', reason: 'Menjaga rambut tetap konsisten bersamaan dengan perlindungan wajah.' },
+        { category: 'LOCK_PRESERVATION', target: 'BODY_POSE', relation: 'PRESERVATION_RELATED', reason: 'Menjaga postur tubuh tetap konsisten bersamaan dengan perlindungan wajah.' },
+        { category: 'IMAGE_QUALITY', relation: 'QUALITY_RELATED', reason: 'Menajamkan mikrokontras dan detail ekspresi wajah subjek.' },
+        { category: 'LIGHTING', relation: 'QUALITY_RELATED', reason: 'Pencahayaan yang optimal dan seimbang pada wajah subjek.' }
+      ]
+    };
+
+    for (const ent of primaryEntities) {
+      const connections = graphConnections[ent] || [];
+      for (const conn of connections) {
+        for (const item of this.catalog) {
+          if (primaryCodes.has(item.code) || relatedMap.has(item.code)) continue;
+          if (conn.category && item.category !== conn.category) continue;
+          if (conn.target && item.target !== conn.target) continue;
+
+          // Do not suggest headwear edits if headwear is not part of user prompt or active entities
+          if (item.category === 'HEADWEAR' && !primaryEntities.has('HEADWEAR')) continue;
+          // Do not suggest transparency alpha removal if background transparency wasn't requested
+          if (item.category === 'TRANSPARENCY' && !primaryEntities.has('BACKGROUND')) continue;
+
+          if (this.hasConflict(item, lockedShorthands, primaryCodes)) continue;
+          if (matchShorthandScore(item, text) < 0) continue;
+
+          const fg = item.functionGroup || item.category;
+          if (primaryFunctionGroups.has(fg)) continue;
+
+          relatedMap.set(item.code, {
+            item,
+            code: item.code,
+            name: item.name,
+            category: item.category,
+            target: item.target,
+            functionGroup: fg,
+            description: item.description,
+            relationship: conn.relation || 'CONTEXTUAL',
+            reason: conn.reason || `Berhubungan dengan area ${ent}`,
+            source: item.source || 'CORE',
+            priority: 'DISARANKAN',
+            score: 75,
+            isPrimary: false,
+            checked: false
+          });
+        }
+      }
+    }
+
+    // Deduplicate related candidates by functionGroup
+    const rawRelated = Array.from(relatedMap.values());
+    const dedupedRelated = this.deduplicateByFunctionGroup(rawRelated).map(r => ({
+      ...r,
+      isPrimary: false,
+      checked: false,
+      priority: r.priority || 'DISARANKAN'
+    }));
+
+    return dedupedRelated;
+  }
+
+  detectConflicts(editAreas, lockedAreas, primaryShorthands, existingShorthands) {
     const conflicts = [];
 
     // 1. Conflict between Edit Area and Locked Area on the same entity
@@ -486,143 +902,135 @@ export class SemanticEngine {
       }
     }
 
-    // 2. Conflict between explicit Shorthands typed by user (e.g. /facelock vs /faceedit, /bgremove vs /backgroundlock)
-    if (existingShorthands.includes('/backgroundlock') && (existingShorthands.includes('/bgremove') || existingShorthands.includes('/bgreplace'))) {
-      conflicts.push({
-        id: 'conflict-bg-shorthand',
-        entity: 'BACKGROUND',
-        label: 'Latar Belakang',
-        type: 'SHORTHAND_CLASH',
-        shorthandA: '/backgroundlock',
-        shorthandB: existingShorthands.includes('/bgremove') ? '/bgremove' : '/bgreplace',
-        reason: 'Shorthand /backgroundlock bertentangan langsung dengan perintah manipulasi latar belakang.',
-        options: [
-          { id: 'keep_lock', label: 'Gunakan /backgroundlock' },
-          { id: 'keep_edit', label: 'Gunakan Shorthand Ubah Latar' }
-        ]
-      });
+    // 2. Conflict matrix defined in Knowledge Base item.conflicts
+    const primaryCodes = Array.isArray(primaryShorthands)
+      ? primaryShorthands.map(p => (typeof p === 'string' ? p : p.code))
+      : Array.from(primaryShorthands.keys ? primaryShorthands.keys() : []);
+
+    const activeCodes = Array.from(new Set([...primaryCodes, ...existingShorthands]));
+
+    for (const code of activeCodes) {
+      const item = this.catalog.find(c => c.code === code);
+      if (!item || !item.conflicts || item.conflicts.length === 0) continue;
+
+      for (const conflictingCode of item.conflicts) {
+        if (activeCodes.includes(conflictingCode)) {
+          // Avoid duplicate conflict if an EDIT_VS_LOCK already captured this pair
+          const alreadyCaptured = conflicts.some(c => 
+            (c.shorthandA === code && c.shorthandB === conflictingCode) ||
+            (c.shorthandA === conflictingCode && c.shorthandB === code)
+          );
+          if (alreadyCaptured) continue;
+
+          const conflictId = `conflict-${[code, conflictingCode].sort().join('-')}`;
+          if (!conflicts.some(c => c.id === conflictId)) {
+            conflicts.push({
+              id: conflictId,
+              entity: item.target,
+              label: item.name,
+              type: 'SHORTHAND_CLASH',
+              shorthandA: code,
+              shorthandB: conflictingCode,
+              instructionA: item.description,
+              instructionB: `Konflik dengan direktif ${conflictingCode}`,
+              reason: `Shorthand ${code} bertentangan langsung dengan ${conflictingCode} pada target ${item.target}.`,
+              options: [
+                { id: 'keep_a', label: `Gunakan ${code}` },
+                { id: 'keep_b', label: `Gunakan ${conflictingCode}` }
+              ]
+            });
+          }
+        }
+      }
     }
 
     return conflicts;
   }
 
-  evaluateShorthands(intentData, editAreas, lockedAreas, existingShorthands) {
-    const recommendations = [];
+  evaluateExclusions(recommendations, primaryShorthands = []) {
+    const recCodes = new Set(recommendations.map(r => r.code));
+    for (const r of recommendations) {
+      if (r.equivalentTo) {
+        for (const eq of r.equivalentTo) recCodes.add(eq);
+      }
+    }
+
+    const primaryCodes = new Set(primaryShorthands.map(p => p.code));
+
     const exclusions = [];
-
-    // Helper map of actively needed codes
-    const activeDirectives = new Map();
-
-    // From locked areas -> WAJIB
-    for (const lock of lockedAreas) {
-      if (lock.shorthand) {
-        activeDirectives.set(lock.shorthand, {
-          priority: 'WAJIB',
-          target: lock.label,
-          reason: `Kritis untuk menjamin ${lock.description.toLowerCase()}`
-        });
-      }
-    }
-
-    // From edit areas -> WAJIB or DISARANKAN
-    for (const edit of editAreas) {
-      if (edit.shorthand) {
-        const priority = (edit.entity === 'BACKGROUND' && edit.action.includes('REMOVE')) || edit.entity === 'CANVAS'
-          ? 'WAJIB'
-          : 'DISARANKAN';
-        activeDirectives.set(edit.shorthand, {
-          priority,
-          target: edit.label,
-          reason: `Mendukung eksekusi ${edit.description.toLowerCase()}`
-        });
-      }
-    }
-
-    // Special synergies:
-    // If lighting requested, /enhance is DISARANKAN
-    if (intentData.category === 'LIGHTING' && !activeDirectives.has('/enhance')) {
-      activeDirectives.set('/enhance', {
-        priority: 'DISARANKAN',
-        target: 'Seluruh Gambar',
-        reason: 'Mendukung peningkatan dan penyeimbangan kualitas visual pencahayaan secara menyeluruh.'
-      });
-    }
-
-    // If sharpness requested, /sharpen is DISARANKAN
-    if (intentData.category === 'QUALITY' && !activeDirectives.has('/sharpen')) {
-      activeDirectives.set('/sharpen', {
-        priority: 'DISARANKAN',
-        target: 'Detail & Mikrokontras',
-        reason: 'Meningkatkan kejernihan tekstur dan mikrokontras tepian objek.'
-      });
-    }
-
-    // Secondary synergies (OPSIONAL)
-    if (activeDirectives.has('/enhance') && !activeDirectives.has('/sharpen')) {
-      activeDirectives.set('/sharpen', {
-        priority: 'OPSIONAL',
-        target: 'Detail Tekstur',
-        reason: 'Opsional: menyempurnakan ketajaman setelah pencahayaan ditingkatkan.'
-      });
-    }
-
-    if (activeDirectives.has('/sharpen') && !activeDirectives.has('/denoise')) {
-      activeDirectives.set('/denoise', {
-        priority: 'OPSIONAL',
-        target: 'Area Bayangan & Noise',
-        reason: 'Opsional: mereduksi noise digital saat ketajaman ditingkatkan.'
-      });
-    }
-
-    // Evaluate all items in catalog against active directives
     for (const item of this.catalog) {
-      if (activeDirectives.has(item.code)) {
-        const match = activeDirectives.get(item.code);
-        recommendations.push({
-          code: item.code,
-          name: item.name,
-          category: item.category,
-          target: match.target || item.target,
-          description: item.description,
-          priority: match.priority,
-          reason: match.reason,
-          active: true
-        });
-      } else {
-        // Excluded shorthand with specific human-friendly Indonesian rationale
-        let exclusionReason = 'Tidak ada permintaan yang relevan dengan fungsi shorthand ini pada prompt user.';
-        if (item.code === '/facelock') {
-          exclusionReason = 'Tidak ada permintaan yang menyentuh atau mengunci wajah subjek.';
-        } else if (item.code === '/bgremove') {
-          exclusionReason = 'Tidak ada permintaan penghapusan latar belakang menjadi transparan.';
+      if (recCodes.has(item.code)) continue;
+
+      let exclusionReason = 'Tidak ada instruksi yang relevan dengan fungsi shorthand ini pada prompt user.';
+
+      // Check for conflict with an active primary shorthand
+      const conflictingPrimary = primaryShorthands.find(p => {
+        if (item.conflicts && item.conflicts.includes(p.code)) return true;
+        if (p.item?.conflicts && p.item.conflicts.includes(item.code)) return true;
+        return false;
+      });
+
+      if (conflictingPrimary) {
+        exclusionReason = `Bertentangan dengan direktif aktif: ${conflictingPrimary.code} (${conflictingPrimary.name}).`;
+      } else if (item.category === 'LOCK_PRESERVATION' || item.category === 'FACE_IDENTITY') {
+        if (item.code === '/facelock' || item.code === '/faceedit' || item.code === '/facechange') {
+          exclusionReason = 'Tidak ada instruksi yang menyentuh atau mengunci area wajah.';
+        } else if (item.code === '/hairlock') {
+          exclusionReason = 'Tidak ada instruksi yang memodifikasi atau mengunci rambut subjek.';
         } else if (item.code === '/backgroundlock') {
           exclusionReason = 'Latar belakang tidak diminta untuk dikunci secara eksplisit.';
-        } else if (item.code === '/outfit' || item.code === '/outfitlock') {
-          exclusionReason = 'Tidak ada instruksi yang memodifikasi atau mengunci pakaian.';
-        } else if (item.code.startsWith('/ar')) {
-          exclusionReason = 'Tidak ada instruksi pengubahan rasio aspek atau kanvas.';
-        } else if (item.code === '/fullbody') {
-          exclusionReason = 'Tidak ada permintaan framing subjek dari kepala ke kaki.';
-        } else if (item.code === '/cinematic' || item.code === '/colorgrade') {
-          exclusionReason = 'Gaya artistik atau grading warna tidak dispesifikasikan.';
+        } else if (item.code === '/outfitlock') {
+          exclusionReason = 'Pakaian subjek tidak diminta untuk dikunci.';
+        } else if (item.code === '/headwearlock') {
+          exclusionReason = 'Tidak ada instruksi penutup kepala atau hijab untuk dikunci.';
         }
-
-        exclusions.push({
-          code: item.code,
-          name: item.name,
-          category: item.category,
-          target: item.target,
-          description: item.description,
-          reason: exclusionReason
-        });
+      } else if (item.category === 'HAIR') {
+        exclusionReason = 'Tidak ada instruksi yang mengubah gaya atau warna rambut subjek.';
+      } else if (item.category === 'OUTFIT') {
+        if (primaryCodes.has('/outfit')) {
+          if (item.code === '/outfit-remove') {
+            exclusionReason = 'Instruksi adalah mengganti busana (/outfit), bukan menanggalkan busana.';
+          } else if (item.code === '/outfit-color') {
+            exclusionReason = 'Instruksi mengganti model busana baru (/outfit), bukan hanya mengubah warna busana lama.';
+          } else {
+            exclusionReason = 'Fungsi modifikasi pakaian sudah diwakili oleh direktif /outfit.';
+          }
+        } else {
+          exclusionReason = 'Tidak ada instruksi yang memodifikasi pakaian atau busana.';
+        }
+      } else if (item.category === 'HEADWEAR') {
+        exclusionReason = 'Tidak ada instruksi penutup kepala atau hijab.';
+      } else if (item.category === 'BACKGROUND' || item.category === 'TRANSPARENCY') {
+        if (item.code === '/bgremove') {
+          exclusionReason = 'Tidak ada permintaan penghapusan latar belakang menjadi transparan.';
+        } else if (item.code === '/bgreplace') {
+          exclusionReason = 'Tidak ada permintaan penggantian latar belakang ke scene baru.';
+        } else {
+          exclusionReason = 'Tidak ada permintaan manipulasi latar belakang.';
+        }
+      } else if (item.category === 'CANVAS_RATIO') {
+        exclusionReason = 'Tidak ada instruksi pengubahan rasio kanvas gambar.';
+      } else if (item.category === 'BODY_POSE') {
+        exclusionReason = 'Tidak ada permintaan perubahan pose atau framing seluruh badan.';
+      } else if (item.category === 'STYLE_EFFECT' || item.category === 'CAMERA_PHOTO') {
+        exclusionReason = 'Gaya artistik atau karakter kamera khusus tidak dispesifikasikan.';
+      } else if (item.category === 'EXPRESSION') {
+        exclusionReason = 'Tidak ada instruksi perubahan ekspresi atau emosi wajah.';
+      } else if (item.category === 'OBJECT') {
+        exclusionReason = 'Tidak ada instruksi penambahan atau penghapusan objek pada adegan.';
       }
+
+      exclusions.push({
+        code: item.code,
+        name: item.name,
+        category: item.category,
+        target: item.target,
+        description: item.description,
+        reason: exclusionReason
+      });
     }
 
-    // Sort recommendations: WAJIB first, then DISARANKAN, then OPSIONAL
-    const priorityWeight = { WAJIB: 1, DISARANKAN: 2, OPSIONAL: 3 };
-    recommendations.sort((a, b) => (priorityWeight[a.priority] || 4) - (priorityWeight[b.priority] || 4));
-
-    return { recommendations, exclusions };
+    return exclusions;
   }
 
   generateVisualTransformation(editAreas, lockedAreas, cleanPrompt) {
@@ -653,8 +1061,11 @@ export class SemanticEngine {
     } else if (editAreas.some(e => e.entity === 'BACKGROUND' && e.action.includes('REMOVE'))) {
       fromText = 'Foto subjek dengan latar belakang bawaan';
       toText = 'Subjek terisolasi rapi dengan latar belakang transparan (alpha channel)';
-    } else if (editAreas.some(e => e.entity === 'CANVAS')) {
-      const canvasEdit = editAreas.find(e => e.entity === 'CANVAS');
+    } else if (editAreas.some(e => e.entity === 'BACKGROUND' && e.action.includes('REPLACE'))) {
+      fromText = 'Latar belakang awal foto';
+      toText = 'Latar belakang digantikan dengan pemandangan baru yang harmonis';
+    } else if (editAreas.some(e => e.entity === 'CANVAS_RATIO')) {
+      const canvasEdit = editAreas.find(e => e.entity === 'CANVAS_RATIO');
       fromText = 'Dimensi kanvas bawaan foto';
       toText = `${canvasEdit ? canvasEdit.description : 'Dimensi kanvas baru disesuaikan'}`;
     }
@@ -671,9 +1082,7 @@ export class SemanticEngine {
       return '';
     }
 
-    // Clean prompt base
     let base = cleanText.trim();
-    // Ensure terminal period before shorthand tags if prompt is non-empty
     if (base && !base.endsWith('.') && !base.endsWith('!') && !base.endsWith('?')) {
       base += '.';
     }
@@ -704,6 +1113,8 @@ export class SemanticEngine {
       lockedAreas: [],
       unchangedAreas: [],
       conflicts: [],
+      primaryShorthands: [],
+      relatedShorthands: [],
       recommendations: [],
       exclusions: [],
       installedShorthands: [],

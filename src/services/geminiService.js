@@ -26,6 +26,7 @@ export class GeminiService {
   }
 
   setCatalog(catalog) {
+    this.catalog = catalog;
     this.localEngine.setCatalog(catalog);
   }
 
@@ -221,6 +222,8 @@ Jawab HANYA dalam format JSON valid tanpa markdown formatting.`;
       lockedAreas: (aiResult.lockedAreas && aiResult.lockedAreas.length > 0) ? aiResult.lockedAreas : fallback.lockedAreas,
       unchangedAreas: fallback.unchangedAreas,
       conflicts: (aiResult.conflicts && aiResult.conflicts.length > 0) ? aiResult.conflicts : fallback.conflicts,
+      primaryShorthands: fallback.primaryShorthands,
+      relatedShorthands: fallback.relatedShorthands,
       recommendations: fallback.recommendations, // Maintain strict catalog consistency
       exclusions: fallback.exclusions,
       installedShorthands: fallback.installedShorthands,

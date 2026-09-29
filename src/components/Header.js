@@ -29,7 +29,7 @@ export function renderHeader(activeTab, geminiStatusInfo, onTabChange, onOpenSet
           <div class="brand-text">
             <h1>
               PROMPT SHORTHAND ANALYZER
-              <span class="version-tag">V2.0</span>
+              <span class="version-tag">V2.1</span>
             </h1>
             <p>Contextual Shorthand Notation &amp; Semantic Preservation</p>
           </div>
