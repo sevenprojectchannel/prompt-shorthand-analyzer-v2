@@ -1235,3 +1235,607 @@
   font-family: var(--font-mono);
 }
 
+/* ==========================================================================
+   PATCH V2.1 — RESPONSIVE & MOBILE-FRIENDLY STYLES
+   Breakpoints:
+   - Tablet / Medium: <= 768px
+   - Mobile / Small:   <= 480px
+   ========================================================================== */
+
+/* --- TABLET & MOBILE UNIFIED RULES (<= 768px) --- */
+@media (max-width: 768px) {
+  /* 1. Header & Navigation */
+  .header-container {
+    padding: 0.65rem 0.85rem;
+    gap: 0.65rem;
+    align-items: center;
+  }
+
+  .brand-wrapper {
+    gap: 0.65rem;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .brand-logo {
+    width: 32px;
+    height: 32px;
+    font-size: 0.9rem;
+    border-radius: var(--radius-sm);
+  }
+
+  .brand-text {
+    min-width: 0;
+  }
+
+  .brand-text h1 {
+    font-size: 0.95rem;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    line-height: 1.25;
+  }
+
+  .brand-text p {
+    font-size: 0.7rem;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-actions {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .status-badge {
+    min-height: 36px;
+    padding: 0.25rem 0.65rem;
+    font-size: 0.725rem;
+  }
+
+  .nav-menu {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    scrollbar-width: none;
+    padding: 0.25rem;
+    gap: 0.35rem;
+    margin-top: 0.15rem;
+  }
+
+  .nav-menu::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-item {
+    flex-shrink: 0;
+    min-height: 44px;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.825rem;
+  }
+
+  /* 2. Panels & Containers */
+  .panel {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: var(--radius-md);
+  }
+
+  .card-header {
+    margin-bottom: 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .card-title h2 {
+    font-size: 0.95rem;
+    line-height: 1.3;
+  }
+
+  /* 3. Prompt Input */
+  .textarea-prompt {
+    min-height: 100px;
+    font-size: 0.925rem;
+    padding: 0.75rem;
+  }
+
+  .presets-cloud {
+    gap: 0.4rem;
+  }
+
+  .btn-preset-chip {
+    min-height: 38px;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* 4. Prompt Optimal */
+  #card-prompt-optimal .card-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  #card-prompt-optimal .card-header > div:last-child {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .optimal-output-box {
+    display: block;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    padding: 0.85rem;
+    font-size: 0.925rem;
+    line-height: 1.55;
+  }
+
+  #btn-copy-main-prompt {
+    min-height: 44px;
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .installed-title-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .add-shorthand-controls {
+    display: flex;
+    width: 100%;
+    gap: 0.4rem;
+  }
+
+  .add-shorthand-controls .select-input {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    font-size: 0.85rem;
+  }
+
+  .add-shorthand-controls #btn-add-shorthand {
+    min-height: 44px;
+    padding: 0.4rem 0.85rem;
+    flex-shrink: 0;
+  }
+
+  .installed-chips-container {
+    gap: 0.45rem;
+  }
+
+  .shorthand-chip {
+    min-height: 38px;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  .shorthand-chip .chip-remove-btn {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+  }
+
+  /* 5. Shorthand Recommendations (Primary & Related) */
+  .rec-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .rec-card {
+    padding: 0.85rem;
+    gap: 0.65rem;
+  }
+
+  .rec-card-header {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .related-header-row {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .checkbox-container {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  .related-checkbox {
+    width: 1.35rem;
+    height: 1.35rem;
+    min-width: 1.35rem;
+    min-height: 1.35rem;
+    accent-color: #8b5cf6;
+  }
+
+  .btn-toggle-rec {
+    min-height: 40px;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.825rem;
+  }
+
+  .rec-toggle-row {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .related-fields {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .alias-tag {
+    display: inline-block;
+    word-break: break-all;
+    margin: 0.15rem 0.15rem;
+  }
+
+  /* 6. Analysis Cards (A, B, C, D, G, H) */
+  .intent-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+  }
+
+  .area-item-card {
+    padding: 0.7rem 0.85rem;
+    gap: 0.65rem;
+  }
+
+  .transform-flow-card {
+    grid-template-columns: 1fr;
+    text-align: center;
+    gap: 0.75rem;
+  }
+
+  .transform-arrow-box svg {
+    transform: rotate(90deg);
+  }
+
+  .conflict-vs-box {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
+  }
+
+  .conflict-actions {
+    flex-direction: column;
+    width: 100%;
+    gap: 0.4rem;
+  }
+
+  .conflict-actions .btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .exclusions-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  /* 7. Catalog Page */
+  .catalog-controls {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 0.75rem !important;
+    margin-bottom: 1rem;
+  }
+
+  .catalog-controls > div:first-child {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .catalog-controls select.select-input {
+    width: 100%;
+    min-height: 44px;
+    font-size: 0.85rem;
+  }
+
+  .catalog-controls > div:last-child {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .search-input {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 44px;
+    font-size: 0.9rem;
+  }
+
+  .category-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    scrollbar-width: none;
+    padding-bottom: 0.35rem;
+  }
+
+  .category-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .category-tab-btn {
+    flex-shrink: 0;
+    min-height: 40px;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.8rem;
+  }
+
+  .catalog-action-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  .catalog-actions-group {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .catalog-actions-group .btn {
+    min-height: 44px;
+    justify-content: center;
+    font-size: 0.8rem;
+  }
+
+  .catalog-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+  }
+
+  .catalog-item-card {
+    padding: 0.95rem;
+    gap: 0.65rem;
+  }
+
+  .catalog-meta-list {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .catalog-pagination {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+  }
+
+  .pagination-btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.5rem 0.85rem;
+  }
+
+  /* 8. Test (JSON) Page */
+  .validation-row {
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .val-item {
+    width: 100%;
+    justify-content: space-between;
+    min-height: 42px;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.825rem;
+  }
+
+  .json-viewer-container {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .json-box {
+    max-height: 420px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    padding: 0.75rem;
+    word-break: break-all;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #btn-copy-output-json {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+    font-size: 0.85rem;
+  }
+
+  /* 9. Settings (API & Pengaturan) Page */
+  .settings-container {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .password-input-group input {
+    min-height: 44px;
+    font-size: 0.925rem;
+    padding-right: 3.25rem;
+  }
+
+  .password-toggle-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  #setting-model-select {
+    min-height: 44px;
+    font-size: 0.85rem;
+    width: 100%;
+  }
+
+  .connection-status-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.85rem;
+  }
+
+  #btn-test-connection {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+    font-size: 0.85rem;
+  }
+
+  #settings-form > div:last-child {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  #btn-save-settings, #btn-clear-key {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+    font-size: 0.9rem;
+  }
+
+  /* 10. Modals & Dialogs */
+  .modal-backdrop {
+    padding: 0.5rem;
+    align-items: flex-end;
+  }
+
+  .modal-card {
+    max-width: 100% !important;
+    max-height: 90vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-header {
+    padding: 0.85rem 1rem;
+    flex-shrink: 0;
+  }
+
+  .modal-close {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+  }
+
+  .modal-body {
+    padding: 1rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    flex: 1;
+    max-height: calc(90vh - 75px);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .modal-body .btn {
+    min-height: 44px;
+  }
+
+  /* 11. Toast & Footer */
+  .toast-container {
+    bottom: 1rem;
+    right: 1rem;
+    left: 1rem;
+  }
+
+  .toast {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .footer-container {
+    flex-direction: column;
+    text-align: center;
+    gap: 0.5rem;
+  }
+}
+
+/* --- SMALL MOBILE RULES (<= 480px) --- */
+@media (max-width: 480px) {
+  .header-container {
+    padding: 0.5rem;
+    gap: 0.5rem;
+  }
+
+  .brand-text h1 {
+    font-size: 0.875rem;
+  }
+
+  .brand-text p {
+    display: none;
+  }
+
+  .status-badge {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.7rem;
+  }
+
+  .panel {
+    padding: 0.85rem;
+    margin-bottom: 0.85rem;
+  }
+
+  #card-input > div:last-child {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 0.65rem !important;
+  }
+
+  #btn-run-analysis {
+    width: 100%;
+    min-height: 48px;
+    font-size: 0.95rem;
+    justify-content: center;
+  }
+
+  .intent-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-actions-group {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- MOBILE SAFE AREA INSET --- */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .app-footer {
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  }
+
+  .modal-card {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .toast-container {
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+}
+
+
