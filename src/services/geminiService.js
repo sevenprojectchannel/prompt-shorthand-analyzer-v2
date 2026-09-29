@@ -19,7 +19,7 @@ export const GEMINI_STATUS = {
 
 export class GeminiService {
   constructor(catalog = []) {
-    this.localEngine = new SemanticEngine(catalog);
+    this.localEngine = new SemanticEngine(catalog, { adaptive: true });
     this.status = GEMINI_STATUS.UNCONFIGURED;
     this.lastError = null;
     this.initStatusFromStorage();
@@ -229,6 +229,9 @@ Jawab HANYA dalam format JSON valid tanpa markdown formatting.`;
       installedShorthands: fallback.installedShorthands,
       visualTransformation: aiResult.visualTransformation || fallback.visualTransformation,
       optimalPrompt: fallback.optimalPrompt,
+      smartOptimalPrompt: fallback.smartOptimalPrompt,
+      basicOptimalPrompt: fallback.basicOptimalPrompt,
+      adaptiveMetadata: fallback.adaptiveMetadata,
       timestamp: new Date().toISOString()
     };
   }

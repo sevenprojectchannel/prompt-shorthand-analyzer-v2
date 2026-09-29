@@ -560,6 +560,159 @@ console.log('\n--- PATCH V2.1 MANDATORY CLASSIFICATION & UI SPEC TESTS ---');
   assert(functionGroups.size === res.relatedShorthands.length, 'No arbitrary related limit: every related shorthand represents a distinct function group');
 }
 
+// =============================================================================
+// PATCH V2.2 - SMART ADAPTIVE PROMPT OPTIMIZER TEST SUITE (TEST 1 - TEST 14)
+// =============================================================================
+console.log('\n==================================================');
+console.log('PATCH V2.2 — SMART ADAPTIVE PROMPT OPTIMIZER TESTS');
+console.log('==================================================\n');
+
+const adaptiveEngine = new SemanticEngine(INITIAL_SHORTHAND_CATALOG, { adaptive: true });
+
+// TEST 1: Simple lighting prompt
+console.log('--- TEST 1: Simple lighting prompt ---');
+{
+  const res = adaptiveEngine.analyze('Perbaiki pencahayaan foto');
+  assert(res.optimalPrompt.toLowerCase().includes('pencahayaan') && res.optimalPrompt.includes('/enhance'), 'Test 1: lighting-focused optimization produced');
+  assert(res.adaptiveMetadata?.complexity === 'SIMPLE', 'Test 1: complexity classified as SIMPLE');
+  assert(res.adaptiveMetadata?.targetAreas.includes('Pencahayaan (Lighting)'), 'Test 1: targetAreas includes lighting');
+}
+
+// TEST 2: Lighting shorthand
+console.log('\n--- TEST 2: Lighting shorthand ---');
+{
+  const res = adaptiveEngine.analyze('Perbaiki pencahayaan foto. /enhance');
+  assert(res.installedShorthands.includes('/enhance'), 'Test 2: /enhance retained in installedShorthands');
+  assert(res.optimalPrompt.includes('/enhance'), 'Test 2: /enhance retained at the end of prompt');
+}
+
+// TEST 3: No semantic drift
+console.log('\n--- TEST 3: No semantic drift ---');
+{
+  const res = adaptiveEngine.analyze('Perbaiki pencahayaan foto');
+  const lower = res.optimalPrompt.toLowerCase();
+  assert(!lower.includes('baju') && !lower.includes('pakaian') && !lower.includes('tanktop'), 'Test 3: No outfit drift');
+  assert(!lower.includes('background') && !lower.includes('latar'), 'Test 3: No background drift');
+  assert(!lower.includes('rambut') && !lower.includes('hair'), 'Test 3: No hair drift');
+  assert(!lower.includes('pose') && !lower.includes('badan'), 'Test 3: No pose/body drift');
+  assert(!res.optimalPrompt.includes('/outfit') && !res.optimalPrompt.includes('/bgremove') && !res.optimalPrompt.includes('/hairlock'), 'Test 3: No unrelated shorthand drift');
+}
+
+// TEST 4: Related not auto injected
+console.log('\n--- TEST 4: Related not auto injected ---');
+{
+  const res = adaptiveEngine.analyze('Perbaiki pencahayaan foto');
+  assert(!res.optimalPrompt.includes('/sharpen'), 'Test 4: unselected related /sharpen not in optimal prompt');
+  assert(!res.optimalPrompt.includes('/denoise'), 'Test 4: unselected related /denoise not in optimal prompt');
+  assert(!res.optimalPrompt.includes('/warmtone'), 'Test 4: unselected related /warmtone not in optimal prompt');
+  assert(!res.optimalPrompt.includes('/cooltone'), 'Test 4: unselected related /cooltone not in optimal prompt');
+}
+
+// TEST 5: Selected related
+console.log('\n--- TEST 5: Selected related ---');
+{
+  const res = adaptiveEngine.analyze('Perbaiki pencahayaan foto', ['/enhance', '/sharpen']);
+  assert(res.installedShorthands.includes('/sharpen'), 'Test 5: user-selected /sharpen in installedShorthands');
+  assert(res.optimalPrompt.includes('/sharpen'), 'Test 5: user-selected /sharpen appended to optimal prompt');
+  assert(!res.optimalPrompt.includes('/denoise'), 'Test 5: unselected related still excluded');
+}
+
+// TEST 6: Explicit face lock
+console.log('\n--- TEST 6: Explicit face lock ---');
+{
+  const res = adaptiveEngine.analyze('Ganti baju menjadi tanktop putih tali tipis, jangan ubah wajah');
+  assert(res.installedShorthands.includes('/outfit') && res.installedShorthands.includes('/facelock'), 'Test 6: primary shorthands include /outfit and /facelock');
+  assert(res.optimalPrompt.includes('/outfit') && res.optimalPrompt.includes('/facelock'), 'Test 6: optimal prompt includes /outfit and /facelock');
+  assert(res.optimalPrompt.toLowerCase().includes('tanktop putih tali tipis'), 'Test 6: preserves specific outfit detail');
+  assert(res.optimalPrompt.toLowerCase().includes('wajah') && res.optimalPrompt.toLowerCase().includes('kunci'), 'Test 6: preserves face locking instruction');
+}
+
+// TEST 7: No unnecessary additions
+console.log('\n--- TEST 7: No unnecessary additions ---');
+{
+  const res = adaptiveEngine.analyze('Ganti baju');
+  const lower = res.optimalPrompt.toLowerCase();
+  assert(!lower.includes('rambut'), 'Test 7: does not add hair transformation');
+  assert(!lower.includes('pose'), 'Test 7: does not add pose transformation');
+  assert(!lower.includes('latar') && !lower.includes('background'), 'Test 7: does not add background transformation');
+  assert(!lower.includes('pencahayaan') && !lower.includes('lighting'), 'Test 7: does not add lighting transformation');
+  assert(res.installedShorthands.length === 1 && res.installedShorthands[0] === '/outfit', 'Test 7: only /outfit is installed');
+}
+
+// TEST 8: Complex prompt preservation
+console.log('\n--- TEST 8: Complex prompt preservation ---');
+{
+  const res = adaptiveEngine.analyze('Ganti baju menjadi tanktop putih, jangan ubah wajah, pertahankan rambut, gunakan rasio 9:16');
+  const lower = res.optimalPrompt.toLowerCase();
+  assert(lower.includes('tanktop putih'), 'Test 8: preserves tanktop putih instruction');
+  assert(lower.includes('wajah') && (lower.includes('kunci') || lower.includes('pertahankan')), 'Test 8: preserves face locking instruction');
+  assert(lower.includes('rambut') && lower.includes('pertahankan'), 'Test 8: preserves hair locking instruction');
+  assert(lower.includes('9:16'), 'Test 8: preserves 9:16 aspect ratio instruction');
+  assert(res.installedShorthands.includes('/outfit'), 'Test 8: includes /outfit');
+  assert(res.installedShorthands.includes('/facelock'), 'Test 8: includes /facelock');
+  assert(res.installedShorthands.includes('/hairlock'), 'Test 8: includes /hairlock');
+  assert(res.installedShorthands.includes('/ar 9:16'), 'Test 8: includes /ar 9:16');
+  assert(res.adaptiveMetadata?.complexity === 'COMPLEX', 'Test 8: complexity classified as COMPLEX');
+}
+
+// TEST 9: Duplicate semantic instruction
+console.log('\n--- TEST 9: Duplicate semantic instruction ---');
+{
+  const res = adaptiveEngine.analyze('Jangan ubah wajah wajah tetap sama');
+  const faceSentences = res.optimalPrompt.split('.').filter(s => s.toLowerCase().includes('wajah'));
+  assert(faceSentences.length <= 1, 'Test 9: deduplicated natural language face preservation without repetition');
+  assert(res.lockedAreas.length === 1, 'Test 9: exactly one lockedArea detected for face');
+}
+
+// TEST 10: Natural language + shorthand consistency
+console.log('\n--- TEST 10: Natural language + shorthand consistency ---');
+{
+  const res = adaptiveEngine.analyze('Perbaiki pencahayaan foto /enhance');
+  assert(res.conflicts.length === 0, 'Test 10: no conflicts between natural language and matching shorthand');
+  const count = (res.optimalPrompt.match(/\/enhance/g) || []).length;
+  assert(count === 1, 'Test 10: /enhance appears cleanly once at the end without duplicate tag');
+}
+
+// TEST 11: Gemini unavailable
+console.log('\n--- TEST 11: Gemini unavailable ---');
+{
+  const res = adaptiveEngine.analyze('Perbaiki pencahayaan foto');
+  assert(typeof res.optimalPrompt === 'string' && res.optimalPrompt.length > 20, 'Test 11: deterministic prompt generated without external API');
+  assert(res.adaptiveMetadata !== null, 'Test 11: adaptive metadata generated deterministically');
+  assert(res.intent.primaryTarget === 'Pencahayaan & Tata Cahaya', 'Test 11: deterministic intent classification intact');
+}
+
+// TEST 12: Language preservation
+console.log('\n--- TEST 12: Language preservation ---');
+{
+  const resId = adaptiveEngine.analyze('Perbaiki pencahayaan foto');
+  assert(resId.optimalPrompt.includes('Perbaiki pencahayaan') || resId.optimalPrompt.includes('Hindari'), 'Test 12: Indonesian input yields Indonesian output');
+  
+  const resEn = adaptiveEngine.analyze('Enhance photo lighting');
+  assert(resEn.optimalPrompt.includes('Enhance photo lighting') || resEn.optimalPrompt.includes('Avoid'), 'Test 12: English input yields English output');
+}
+
+// TEST 13: Empty / minimal prompt
+console.log('\n--- TEST 13: Empty / minimal prompt ---');
+{
+  const emptyRes1 = adaptiveEngine.analyze('');
+  assert(emptyRes1.optimalPrompt === '', 'Test 13: empty string handled safely without crash');
+  assert(emptyRes1.installedShorthands.length === 0, 'Test 13: installedShorthands is empty array');
+
+  const emptyRes2 = adaptiveEngine.analyze('   ');
+  assert(emptyRes2.optimalPrompt === '', 'Test 13: whitespace string handled safely without crash');
+
+  const minimalRes = adaptiveEngine.analyze('a');
+  assert(typeof minimalRes.optimalPrompt === 'string', 'Test 13: minimal 1-char prompt handled without throwing error');
+}
+
+// TEST 14: Existing regression
+console.log('\n--- TEST 14: Existing regression ---');
+{
+  assert(passed >= 130, `Test 14: all 130 existing tests passed (current passed: ${passed})`);
+  assert(failed === 0, 'Test 14: zero regressions / zero failures');
+}
+
 console.log('\n==================================================');
 console.log(`HASIL AKHIR: ${passed} PASSED, ${failed} FAILED`);
 console.log('==================================================\n');

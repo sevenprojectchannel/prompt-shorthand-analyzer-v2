@@ -29,9 +29,10 @@ export function renderPromptOptimal({
   const html = `
     <section class="panel analyzer-card card-prompt-optimal" id="card-prompt-optimal">
       <div class="card-header">
-        <div class="card-title">
+        <div class="card-title" style="display: flex; align-items: center; gap: 0.5rem;">
           <svg class="icon" viewBox="0 0 24 24" style="color: #60a5fa;"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-          <h2 style="color: #93c5fd;">PROMPT OPTIMAL</h2>
+          <h2 style="color: #93c5fd; margin: 0;">PROMPT OPTIMAL</h2>
+          <span style="font-size: 0.65rem; font-weight: 700; letter-spacing: 0.05em; padding: 2px 6px; border-radius: 4px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(96, 165, 250, 0.3); color: #93c5fd; text-transform: uppercase;">ADAPTIVE OPTIMIZED</span>
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
           <span style="font-size: 0.775rem; color: var(--text-muted); font-family: var(--font-mono);">

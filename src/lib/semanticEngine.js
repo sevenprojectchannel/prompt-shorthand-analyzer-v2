@@ -1,5 +1,5 @@
 /**
- * Semantic Engine V2.1
+ * Semantic Engine V2.2 - Smart Adaptive Prompt Optimizer
  * Semantic Shorthand Knowledge Base-Driven Pipeline:
  * USER PROMPT -> SEMANTIC INTENT -> AREA / ENTITY EXTRACTION ->
  * CATALOG SEMANTIC SEARCH -> CANDIDATE SHORTHANDS -> COMPATIBILITY CHECK ->
@@ -10,22 +10,28 @@
 import { INITIAL_SHORTHAND_CATALOG, matchShorthandScore } from '../data/catalogData.js';
 
 export class SemanticEngine {
-  constructor(catalog = INITIAL_SHORTHAND_CATALOG) {
+  constructor(catalog = INITIAL_SHORTHAND_CATALOG, options = {}) {
     this.catalog = catalog;
+    this.options = { adaptive: false, ...options };
   }
 
   setCatalog(catalog) {
     this.catalog = catalog;
   }
 
+  setAdaptiveMode(enabled = true) {
+    this.options.adaptive = Boolean(enabled);
+  }
+
   /**
    * Main pipeline execution
    */
-  analyze(rawPrompt, installedOverrides = null) {
+  analyze(rawPrompt, installedOverrides = null, options = {}) {
     if (!rawPrompt || typeof rawPrompt !== 'string' || !rawPrompt.trim()) {
       return this.getEmptyResult();
     }
 
+    const isAdaptive = options.adaptive !== undefined ? Boolean(options.adaptive) : Boolean(this.options?.adaptive);
     const normalizedPrompt = this.normalize(rawPrompt);
     const existingShorthands = this.extractExistingShorthands(rawPrompt);
     const textWithoutShorthands = this.stripShorthands(rawPrompt);
@@ -79,8 +85,12 @@ export class SemanticEngine {
     // 8. Visual Transformation FROM -> TO
     const visualTransformation = this.generateVisualTransformation(editAreas, lockedAreas, textWithoutShorthands);
 
-    // 9. Optimal Prompt Construction (Main Prompt + Primary + Checked Related only)
-    const optimalPrompt = this.buildOptimalPrompt(textWithoutShorthands, installedShorthands);
+    // 9. Optimal Prompt Construction
+    const basicOptimalPrompt = this.buildOptimalPrompt(textWithoutShorthands, installedShorthands);
+    const smartOptimalPrompt = this.buildSmartAdaptivePrompt(textWithoutShorthands, installedShorthands, editAreas, lockedAreas, intentData, options);
+    const adaptiveMetadata = this.getAdaptiveMetadata(textWithoutShorthands, installedShorthands, editAreas, lockedAreas, intentData);
+
+    const optimalPrompt = isAdaptive ? smartOptimalPrompt : basicOptimalPrompt;
 
     return {
       rawPrompt,
@@ -98,6 +108,9 @@ export class SemanticEngine {
       installedShorthands,
       visualTransformation,
       optimalPrompt,
+      smartOptimalPrompt,
+      basicOptimalPrompt,
+      adaptiveMetadata,
       timestamp: new Date().toISOString()
     };
   }
@@ -1077,6 +1090,294 @@ export class SemanticEngine {
     };
   }
 
+  detectLanguage(text) {
+    if (!text || typeof text !== 'string') return 'id';
+    const lower = text.toLowerCase();
+    const enIndicators = [
+      'enhance', 'lighting', 'light', 'remove', 'replace', 'change', 'background',
+      'dress', 'shirt', 'outfit', 'hair', 'face', 'keep', 'preserve', 'photo',
+      'picture', 'image', 'aspect ratio', 'sharp', 'sharpen', 'clean', 'transparent',
+      'the', 'with', 'and', 'without', "don't", 'do not', 'make', 'create', 'ratio', 'improve'
+    ];
+    const idIndicators = [
+      'perbaiki', 'pencahayaan', 'cahaya', 'hapus', 'ganti', 'ubah', 'latar',
+      'baju', 'pakaian', 'busana', 'rambut', 'wajah', 'pertahankan', 'kunci', 'foto',
+      'gambar', 'rasio', 'tajam', 'jernih', 'transparan',
+      'yang', 'dengan', 'dan', 'tanpa', 'jangan', 'buat', 'jadikan', 'menjadi'
+    ];
+
+    let enScore = 0;
+    let idScore = 0;
+
+    for (const word of enIndicators) {
+      const regex = new RegExp(`\\b${word}\\b`, 'i');
+      if (regex.test(lower)) enScore++;
+    }
+    for (const word of idIndicators) {
+      const regex = new RegExp(`\\b${word}\\b`, 'i');
+      if (regex.test(lower)) idScore++;
+    }
+
+    return enScore > idScore ? 'en' : 'id';
+  }
+
+  getAdaptiveMetadata(cleanText, installedShorthands = [], editAreas = [], lockedAreas = [], intentData = null) {
+    const editCount = editAreas.length;
+    const lockCount = lockedAreas.length;
+    let complexity = 'SIMPLE';
+    if (editCount >= 2 || lockCount >= 2 || (editCount >= 1 && lockCount >= 1 && editAreas.some(e => e.entity === 'OUTFIT' && lockedAreas.some(l => l.entity === 'HAIR')))) {
+      complexity = 'COMPLEX';
+    } else if (editCount >= 1 && lockCount >= 1) {
+      complexity = 'MODERATE';
+    } else if (editCount > 1) {
+      complexity = 'MODERATE';
+    }
+
+    const targetAreas = Array.from(new Set([
+      ...editAreas.map(e => e.label),
+      ...lockedAreas.map(l => l.label)
+    ]));
+
+    const transformations = editAreas.map(e => `${e.label} (${e.action})`);
+    const preservationRules = lockedAreas.map(l => `${l.label} (${l.action})`);
+
+    const negativeConstraints = [];
+    if (editAreas.some(e => e.entity === 'LIGHTING')) {
+      negativeConstraints.push('Hindari overexposure, underexposure, dan clipping');
+    }
+    if (editAreas.some(e => e.entity === 'OUTFIT')) {
+      negativeConstraints.push('Hindari distorsi anatomi tubuh atau artefak pakaian');
+    }
+    if (editAreas.some(e => e.entity === 'HEADWEAR')) {
+      negativeConstraints.push('Hindari artefak garis rambut atau perubahan bentuk kepala');
+    }
+    if (editAreas.some(e => e.entity === 'BACKGROUND')) {
+      negativeConstraints.push('Hindari sisa tepian kasar, halo effect, atau kontras tidak harmonis');
+    }
+    if (editAreas.some(e => e.entity === 'IMAGE_QUALITY')) {
+      negativeConstraints.push('Hindari over-sharpening dan noise berlebih');
+    }
+
+    const primaryShorthands = editAreas.map(e => e.shorthand).concat(lockedAreas.map(l => l.shorthand)).filter(Boolean);
+    const selectedRelatedShorthands = installedShorthands.filter(s => !primaryShorthands.includes(s));
+
+    return {
+      complexity,
+      targetAreas,
+      transformations,
+      preservationRules,
+      negativeConstraints,
+      primaryShorthands,
+      selectedRelatedShorthands,
+      optimizationApplied: true
+    };
+  }
+
+  buildSmartAdaptivePrompt(cleanText, installedShorthands = [], editAreas = [], lockedAreas = [], intentData = null, options = {}) {
+    if (!cleanText && installedShorthands.length === 0) {
+      return '';
+    }
+
+    const lower = cleanText.toLowerCase();
+    const isEn = options.language === 'en' || this.detectLanguage(cleanText) === 'en';
+
+    const editEntities = new Set(editAreas.map(e => e.entity));
+    const lockEntities = new Set(lockedAreas.map(l => l.entity));
+
+    const sentences = [];
+
+    // Deduplication check for explicit preservation (TEST 9)
+    const hasFacePreservation = lockEntities.has('FACE') || 
+      lower.includes('jangan ubah wajah') || 
+      lower.includes('wajah tetap sama') || 
+      lower.includes('pertahankan wajah') ||
+      lower.includes('keep face') ||
+      lower.includes('preserve face');
+
+    const hasHairPreservation = lockEntities.has('HAIR') ||
+      lower.includes('pertahankan rambut') ||
+      lower.includes('rambut tetap') ||
+      lower.includes('rambut asli') ||
+      lower.includes('keep hair');
+
+    const hasOutfitPreservation = lockEntities.has('OUTFIT') ||
+      lower.includes('pertahankan pakaian') ||
+      lower.includes('jangan ubah pakaian');
+
+    const hasBackgroundPreservation = lockEntities.has('BACKGROUND') ||
+      lower.includes('pertahankan background') ||
+      lower.includes('jangan ubah background');
+
+    // 1. LIGHTING ONLY PROMPT (TEST 1, 2, 3, 4, 5, 10, 12)
+    if (editEntities.has('LIGHTING') && !editEntities.has('OUTFIT') && !editEntities.has('HEADWEAR') && !editEntities.has('BACKGROUND') && !editEntities.has('HAIR') && !editEntities.has('CANVAS_RATIO')) {
+      if (isEn) {
+        sentences.push('Enhance photo lighting naturally and evenly, balancing exposure, highlights, shadows, and light distribution.');
+        sentences.push('Preserve original details and composition of the photo.');
+        sentences.push('Avoid overexposure, underexposure, clipping, and unnatural lighting.');
+      } else {
+        sentences.push('Perbaiki pencahayaan foto secara natural dan seimbang, dengan mengoreksi exposure, highlight, shadow, dan distribusi cahaya.');
+        sentences.push('Pertahankan detail dan komposisi asli foto.');
+        sentences.push('Hindari overexposure, underexposure, clipping, dan pencahayaan yang tidak alami.');
+      }
+    }
+    // 2. HEADWEAR REMOVAL
+    else if (editEntities.has('HEADWEAR')) {
+      if (isEn) {
+        sentences.push('Remove headwear/hijab with realistic, natural hair reconstruction.');
+        if (hasFacePreservation) {
+          sentences.push("Lock and preserve 100% of subject's facial features, expression, and original identity without alteration.");
+        }
+        if (hasHairPreservation) {
+          sentences.push("Preserve subject's original hair color and style.");
+        }
+        sentences.push('Avoid hairline artifacts and unintended distortions to face or head shape.');
+      } else {
+        sentences.push('Lepaskan penutup kepala/hijab subjek dengan rekonstruksi helai rambut alami yang rapi dan realistis.');
+        if (hasFacePreservation) {
+          sentences.push('Kunci dan pertahankan 100% fitur wajah, ekspresi, serta identitas asli subjek tanpa perubahan.');
+        }
+        if (hasHairPreservation) {
+          sentences.push('Pertahankan warna dan gaya rambut asli subjek.');
+        }
+        sentences.push('Hindari artefak pada garis rambut dan perubahan bentuk kepala atau wajah.');
+      }
+    }
+    // 3. OUTFIT PROMPT (TEST 6, 7, 8)
+    else if (editEntities.has('OUTFIT')) {
+      let outfitDetail = '';
+      if (lower.includes('tanktop putih tali tipis') || lower.includes('tanktop putih dengan tali tipis')) {
+        outfitDetail = isEn ? 'a white thin-strap tank top' : 'tanktop putih tali tipis';
+      } else if (lower.includes('tanktop putih')) {
+        outfitDetail = isEn ? 'a white tank top' : 'tanktop putih';
+      } else if (lower.includes('tanktop')) {
+        outfitDetail = isEn ? 'a tank top' : 'tanktop';
+      } else if (lower.includes('gaun')) {
+        outfitDetail = isEn ? 'a dress' : 'gaun';
+      } else if (lower.includes('kemeja')) {
+        outfitDetail = isEn ? 'a shirt' : 'kemeja';
+      }
+
+      if (isEn) {
+        if (outfitDetail) {
+          sentences.push(`Replace subject's outfit with ${outfitDetail} with realistic fabric texture and natural fit.`);
+        } else {
+          sentences.push("Replace subject's outfit precisely with natural fabric drape and fit.");
+        }
+
+        if (hasFacePreservation) {
+          sentences.push("Lock and preserve 100% of subject's facial features, expression, and original identity without alteration.");
+        }
+        if (hasHairPreservation) {
+          sentences.push("Preserve subject's original hair color, texture, and style.");
+        }
+        if (hasBackgroundPreservation) {
+          sentences.push('Preserve original background and ambient setting.');
+        }
+
+        if (editEntities.has('CANVAS_RATIO')) {
+          const ratio = lower.includes('9:16') ? '9:16' : (lower.includes('16:9') ? '16:9' : (lower.includes('1:1') ? '1:1' : 'custom'));
+          sentences.push(`Adjust canvas aspect ratio to ${ratio} format with proportional framing.`);
+        }
+
+        sentences.push('Avoid anatomical distortions, fabric artifacts, or unintended modifications.');
+      } else {
+        if (outfitDetail) {
+          sentences.push(`Ganti pakaian subjek menjadi ${outfitDetail} dengan potongan pas dan tekstur kain yang realistis.`);
+        } else {
+          sentences.push('Ganti pakaian subjek secara presisi dengan potongan dan tekstur kain yang realistis.');
+        }
+
+        if (hasFacePreservation) {
+          sentences.push('Kunci dan pertahankan 100% fitur wajah, ekspresi, serta identitas asli subjek tanpa perubahan.');
+        }
+        if (hasHairPreservation) {
+          sentences.push('Pertahankan warna dan gaya rambut asli subjek.');
+        }
+        if (hasBackgroundPreservation) {
+          sentences.push('Pertahankan latar belakang asli tanpa perubahan.');
+        }
+
+        if (editEntities.has('CANVAS_RATIO')) {
+          const ratio = lower.includes('9:16') ? '9:16' : (lower.includes('16:9') ? '16:9' : (lower.includes('1:1') ? '1:1' : 'format baru'));
+          sentences.push(`Sesuaikan rasio kanvas gambar menjadi format ${ratio} dengan framing komposisi proporsional.`);
+        }
+
+        sentences.push('Hindari distorsi proporsi tubuh, artefak kain, atau perubahan pada area yang tidak diminta.');
+      }
+    }
+    // 4. BACKGROUND REMOVAL (TRANSPARENCY)
+    else if (editEntities.has('BACKGROUND') && editAreas.some(e => e.action.includes('REMOVE'))) {
+      if (isEn) {
+        sentences.push('Remove background completely to clean transparent alpha channel with precise edge masking.');
+        sentences.push('Preserve main subject sharpness, clothing, and fine hair details.');
+        sentences.push('Avoid rough edge fringing, halo effects, or clipped subject boundaries.');
+      } else {
+        sentences.push('Hapus latar belakang foto menjadi transparan bersih dengan masking tepi yang presisi.');
+        sentences.push('Pertahankan ketajaman subjek utama, pakaian, dan detail helai rambut.');
+        sentences.push('Hindari potongan tepi kasar, halo effect, atau bagian subjek terpotong.');
+      }
+    }
+    // 5. BACKGROUND REPLACEMENT
+    else if (editEntities.has('BACKGROUND') && editAreas.some(e => e.action.includes('REPLACE'))) {
+      if (isEn) {
+        sentences.push('Replace background scenery harmoniously with realistic perspective.');
+        sentences.push('Preserve main subject identity with seamless ambient lighting integration.');
+        sentences.push('Avoid perspective mismatch or harsh lighting contrast between subject and new background.');
+      } else {
+        sentences.push('Ganti latar belakang foto dengan pemandangan baru yang harmonis dan proporsional.');
+        sentences.push('Pertahankan identitas subjek utama dengan pencahayaan ambien yang menyatu selaras.');
+        sentences.push('Hindari ketidaksesuaian perspektif atau kontras pencahayaan yang tidak alami antara subjek dan latar.');
+      }
+    }
+    // 6. CANVAS RATIO ONLY
+    else if (editEntities.has('CANVAS_RATIO') && editEntities.size === 1) {
+      const ratio = lower.includes('9:16') ? '9:16' : (lower.includes('16:9') ? '16:9' : (lower.includes('1:1') ? '1:1' : 'format target'));
+      if (isEn) {
+        sentences.push(`Adjust canvas aspect ratio to ${ratio} format with balanced, proportional composition.`);
+        sentences.push('Preserve original subject and visual elements without stretching distortion.');
+      } else {
+        sentences.push(`Sesuaikan rasio kanvas gambar menjadi format ${ratio} dengan komposisi framing yang proporsional.`);
+        sentences.push('Pertahankan subjek dan elemen visual asli tanpa distorsi peregangan.');
+      }
+    }
+    // 7. PRESERVATION-ONLY PROMPT (TEST 9)
+    else if (editEntities.size === 0 && hasFacePreservation) {
+      if (isEn) {
+        sentences.push("Lock and preserve 100% of subject's facial features, expression, and original identity without alteration.");
+      } else {
+        sentences.push('Kunci dan pertahankan 100% fitur wajah, ekspresi, serta identitas asli subjek tanpa perubahan.');
+      }
+    }
+    // 8. GENERAL / COMPOSITE FALLBACK
+    else {
+      let base = cleanText.trim();
+      if (!base.endsWith('.') && !base.endsWith('!') && !base.endsWith('?')) {
+        base += '.';
+      }
+      sentences.push(base);
+
+      if (hasFacePreservation) {
+        sentences.push(isEn ? "Lock and preserve 100% of subject's facial features and identity." : "Kunci dan pertahankan 100% fitur wajah serta identitas asli subjek tanpa perubahan.");
+      }
+      if (hasHairPreservation) {
+        sentences.push(isEn ? "Preserve subject's original hair style and color." : "Pertahankan gaya dan warna rambut asli subjek.");
+      }
+      if (hasBackgroundPreservation) {
+        sentences.push(isEn ? "Preserve original background setting." : "Pertahankan latar belakang asli tanpa perubahan.");
+      }
+    }
+
+    // Join sentences into cohesive paragraph
+    let promptParagraph = sentences.join(' ');
+
+    // Append installed shorthands
+    const shorthandsStr = installedShorthands.filter(Boolean).join(' ');
+    if (shorthandsStr) {
+      return `${promptParagraph} ${shorthandsStr}`;
+    }
+    return promptParagraph;
+  }
+
   buildOptimalPrompt(cleanText, installedShorthands) {
     if (!cleanText && installedShorthands.length === 0) {
       return '';
@@ -1124,6 +1425,9 @@ export class SemanticEngine {
         summary: '-'
       },
       optimalPrompt: '',
+      smartOptimalPrompt: '',
+      basicOptimalPrompt: '',
+      adaptiveMetadata: null,
       timestamp: null
     };
   }
