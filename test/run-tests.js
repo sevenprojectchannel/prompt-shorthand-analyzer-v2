@@ -713,6 +713,179 @@ console.log('\n--- TEST 14: Existing regression ---');
   assert(failed === 0, 'Test 14: zero regressions / zero failures');
 }
 
+// =============================================================================
+// PATCH V2.2.1 — SEMANTIC FAITHFULNESS GUARD TESTS (TEST 15 - TEST 20)
+// =============================================================================
+console.log('\n==================================================');
+console.log('PATCH V2.2.1 — SEMANTIC FAITHFULNESS GUARD TESTS');
+console.log('==================================================\n');
+
+// TEST 15: Semantic Faithfulness Guard - No Invented Attributes
+console.log('--- TEST 15: Semantic Faithfulness Guard - No Invented Attributes ---');
+{
+  const res = adaptiveEngine.analyze('Ganti baju menjadi tanktop putih tali tipis, jangan ubah wajah');
+  const lower = res.optimalPrompt.toLowerCase();
+  assert(!lower.includes('potongan pas'), 'Test 15: No unrequested "potongan pas"');
+  assert(!lower.includes('tekstur kain'), 'Test 15: No unrequested "tekstur kain"');
+  assert(!lower.includes('katun'), 'Test 15: No unrequested fabric material "katun"');
+  assert(!lower.includes('premium'), 'Test 15: No unrequested adjective "premium"');
+  assert(!lower.includes('elegan'), 'Test 15: No unrequested adjective "elegan"');
+  assert(!lower.includes('cinematic'), 'Test 15: No unrequested style "cinematic"');
+  assert(!lower.includes('fitted'), 'Test 15: No unrequested style "fitted"');
+}
+
+// TEST 16: Complex Prompt Exact Phrasing Alignment
+console.log('\n--- TEST 16: Complex Prompt Exact Phrasing Alignment ---');
+{
+  const complexPrompt = 'Ganti baju menjadi tanktop putih tali tipis, jangan ubah wajah, pertahankan rambut, gunakan rasio 9:16';
+  const res = adaptiveEngine.analyze(complexPrompt);
+  const expectedOptimalPrompt = 'Ganti pakaian subjek menjadi tanktop putih tali tipis. Kunci dan pertahankan wajah serta identitas asli subjek tanpa perubahan, serta pertahankan rambut asli. Gunakan rasio kanvas 9:16. Jangan mengubah area lain yang tidak diminta dan hindari distorsi bentuk tubuh atau pakaian. /outfit /facelock /hairlock /ar 9:16';
+  assert(res.optimalPrompt === expectedOptimalPrompt, `Test 16: Matches exact ideal output\n    Expected: "${expectedOptimalPrompt}"\n    Actual:   "${res.optimalPrompt}"`);
+  assert(res.installedShorthands.length === 4, 'Test 16: Exactly 4 installed shorthands');
+  assert(res.installedShorthands[0] === '/outfit' && res.installedShorthands[1] === '/facelock' && res.installedShorthands[2] === '/hairlock' && res.installedShorthands[3] === '/ar 9:16', 'Test 16: Preserves natural shorthand sequence');
+}
+
+// TEST 17: Traceability Metadata (optimizationTrace)
+console.log('\n--- TEST 17: Traceability Metadata (optimizationTrace) ---');
+{
+  const complexPrompt = 'Ganti baju menjadi tanktop putih tali tipis, jangan ubah wajah, pertahankan rambut, gunakan rasio 9:16';
+  const res = adaptiveEngine.analyze(complexPrompt);
+  const trace = res.adaptiveMetadata?.optimizationTrace;
+  assert(trace !== undefined, 'Test 17: optimizationTrace exists in adaptiveMetadata');
+  assert(Array.isArray(trace?.added), 'Test 17: optimizationTrace.added is an array');
+  assert(Array.isArray(trace?.removed), 'Test 17: optimizationTrace.removed is an array');
+  assert(trace.added.some(a => a.source === 'USER_EXPLICIT'), 'Test 17: trace.added contains USER_EXPLICIT source');
+  assert(trace.added.some(a => a.source === 'RELEVANT_PRESERVATION'), 'Test 17: trace.added contains RELEVANT_PRESERVATION source');
+  assert(trace.added.some(a => a.source === 'RELEVANT_SAFETY_OR_QUALITY_CONSTRAINT'), 'Test 17: trace.added contains RELEVANT_SAFETY_OR_QUALITY_CONSTRAINT source');
+  assert(trace.removed.some(r => r.reason === 'UNSUPPORTED_EXPANSION'), 'Test 17: trace.removed contains UNSUPPORTED_EXPANSION entries');
+}
+
+// TEST 18: Allowed Negative Constraints - Domain Context Sensitivity
+console.log('\n--- TEST 18: Allowed Negative Constraints - Domain Context Sensitivity ---');
+{
+  // Outfit prompt gets body/outfit constraint
+  const outfitRes = adaptiveEngine.analyze('Ganti baju menjadi tanktop putih');
+  assert(outfitRes.optimalPrompt.toLowerCase().includes('distorsi bentuk tubuh atau pakaian'), 'Test 18: Outfit transformation receives body/clothing distortion constraint');
+  assert(!outfitRes.optimalPrompt.toLowerCase().includes('overexposure'), 'Test 18: Outfit does NOT receive lighting constraint');
+
+  // Lighting prompt gets exposure constraint
+  const lightingRes = adaptiveEngine.analyze('Perbaiki pencahayaan foto');
+  assert(lightingRes.optimalPrompt.toLowerCase().includes('overexposure'), 'Test 18: Lighting transformation receives exposure constraint');
+  assert(!lightingRes.optimalPrompt.toLowerCase().includes('distorsi bentuk tubuh'), 'Test 18: Lighting does NOT receive body distortion constraint');
+
+  // Background removal gets halo/fringing constraint
+  const bgRes = adaptiveEngine.analyze('Hapus latar belakang foto');
+  assert(bgRes.optimalPrompt.toLowerCase().includes('potongan tepi kasar') || bgRes.optimalPrompt.toLowerCase().includes('halo effect'), 'Test 18: Background removal receives edge/halo constraint');
+}
+
+// TEST 19: English Complex Prompt Semantic Faithfulness
+console.log('\n--- TEST 19: English Complex Prompt Semantic Faithfulness ---');
+{
+  const enRes = adaptiveEngine.analyze('Replace outfit with white tank top, keep face, keep hair, use 9:16 ratio');
+  const lowerEn = enRes.optimalPrompt.toLowerCase();
+  assert(!lowerEn.includes('realistic fabric texture'), 'Test 19: English prompt has no unprompted "realistic fabric texture"');
+  assert(!lowerEn.includes('natural fit'), 'Test 19: English prompt has no unprompted "natural fit"');
+  assert(!lowerEn.includes('proportional framing'), 'Test 19: English prompt has no unprompted "proportional framing"');
+  assert(enRes.installedShorthands.includes('/outfit') && enRes.installedShorthands.includes('/facelock') && enRes.installedShorthands.includes('/hairlock') && enRes.installedShorthands.includes('/ar 9:16'), 'Test 19: English shorthands correctly installed');
+}
+
+// TEST 20: Regression & Non-interference
+console.log('\n--- TEST 20: Regression & Non-interference ---');
+{
+  assert(passed >= 180, `Test 20: Baseline 180 tests all passed (currently: ${passed})`);
+  assert(failed === 0, 'Test 20: Zero regressions / zero failures');
+}
+
+// =============================================================================
+// PATCH V2.2.2 — EXPLICIT MULTI-INTENT + STRICT SEMANTIC FAITHFULNESS (TEST 21 - TEST 27)
+// =============================================================================
+console.log('\n==================================================');
+console.log('PATCH V2.2.2 — EXPLICIT MULTI-INTENT & FAITHFULNESS TESTS');
+console.log('==================================================\n');
+
+// TEST 21: Explicit Multi-Intent Detection (TEST A)
+console.log('--- TEST 21: Explicit Multi-Intent Detection (TEST A) ---');
+{
+  const res = adaptiveEngine.analyze('Buka hijab dan tampilkan rambut secara natural');
+  const primaryCodes = res.primaryShorthands.map(p => p.code);
+  assert(primaryCodes.includes('/headwear-remove'), 'Test 21: Primary includes /headwear-remove');
+  assert(primaryCodes.includes('/naturalhair'), 'Test 21: Primary includes /naturalhair');
+  assert(!res.relatedShorthands.some(r => r.code === '/naturalhair'), 'Test 21: /naturalhair is NOT in Related');
+  assert(res.optimalPrompt.includes('/headwear-remove') && res.optimalPrompt.includes('/naturalhair'), 'Test 21: Both installed in Prompt Optimal');
+}
+
+// TEST 22: Strict Entailment & Complex Intent (TEST B)
+console.log('\n--- TEST 22: Strict Entailment & Complex Intent (TEST B) ---');
+{
+  const res = adaptiveEngine.analyze('Ganti baju menjadi tanktop putih tali tipis, jangan ubah wajah, pertahankan rambut, gunakan rasio 9:16');
+  const primaryCodes = res.primaryShorthands.map(p => p.code);
+  assert(primaryCodes.includes('/outfit') && primaryCodes.includes('/facelock') && primaryCodes.includes('/hairlock') && primaryCodes.includes('/ar 9:16'), 'Test 22: All 4 explicit intents are Primary');
+  const lower = res.optimalPrompt.toLowerCase();
+  assert(!lower.includes('potongan pas'), 'Test 22: No "potongan pas"');
+  assert(!lower.includes('tekstur kain realistis'), 'Test 22: No "tekstur kain realistis"');
+  assert(!lower.includes('framing komposisi'), 'Test 22: No "framing komposisi"');
+}
+
+// TEST 23: Single Intent No Drift (TEST C)
+console.log('\n--- TEST 23: Single Intent No Drift (TEST C) ---');
+{
+  const res = adaptiveEngine.analyze('Perbaiki pencahayaan foto');
+  const lower = res.optimalPrompt.toLowerCase();
+  assert(res.primaryShorthands.length === 1 && res.primaryShorthands[0].code === '/enhance', 'Test 23: Only /enhance is Primary');
+  assert(!lower.includes('baju') && !lower.includes('pakaian'), 'Test 23: No outfit invention');
+  assert(!lower.includes('rambut') && !lower.includes('hair'), 'Test 23: No hair invention');
+  assert(!lower.includes('latar') && !lower.includes('background'), 'Test 23: No background invention');
+  assert(!lower.includes('cinematic') && !lower.includes('style'), 'Test 23: No style invention');
+}
+
+// TEST 24: Single Explicit Intent - No Unrequested Expansion (TEST D)
+console.log('\n--- TEST 24: Single Explicit Intent - No Unrequested Expansion (TEST D) ---');
+{
+  const res = adaptiveEngine.analyze('Buka hijab');
+  const primaryCodes = res.primaryShorthands.map(p => p.code);
+  assert(primaryCodes.includes('/headwear-remove'), 'Test 24: Primary includes /headwear-remove');
+  assert(!primaryCodes.includes('/naturalhair'), 'Test 24: Does NOT automatically add /naturalhair to Primary');
+  assert(res.relatedShorthands.some(r => r.code === '/naturalhair'), 'Test 24: /naturalhair remains available in Related');
+}
+
+// TEST 25: Isolation Constraint (TEST E)
+console.log('\n--- TEST 25: Isolation Constraint (TEST E) ---');
+{
+  const res = adaptiveEngine.analyze('Ganti baju');
+  assert(res.primaryShorthands.length === 1 && res.primaryShorthands[0].code === '/outfit', 'Test 25: Only /outfit is Primary');
+  const lower = res.optimalPrompt.toLowerCase();
+  assert(!lower.includes('wajah'), 'Test 25: No face lock assumption');
+  assert(!lower.includes('rambut'), 'Test 25: No hair lock assumption');
+  assert(!lower.includes('latar') && !lower.includes('background'), 'Test 25: No background assumption');
+  assert(!lower.includes('pose'), 'Test 25: No pose assumption');
+}
+
+// TEST 26: Forbidden Invented Attributes Guard
+console.log('\n--- TEST 26: Forbidden Invented Attributes Guard ---');
+{
+  const forbidden = [
+    'rapi dan realistis', 'potongan pas', 'tekstur kain realistis', 'natural texture',
+    'vertical cinematic framing', 'smart composition', 'katun', 'premium',
+    'elegan', 'cinematic', 'dramatic', 'luxury', 'studio look', 'professional',
+    'photorealistic', 'seksi', 'fitted'
+  ];
+  const res = adaptiveEngine.analyze('Buka hijab dan tampilkan rambut secara natural');
+  const lower = res.optimalPrompt.toLowerCase();
+  for (const word of forbidden) {
+    assert(!lower.includes(word), `Test 26: Guard blocks forbidden attribute "${word}"`);
+  }
+}
+
+// TEST 27: Shorthand Order Preservation
+console.log('\n--- TEST 27: Shorthand Order Preservation ---');
+{
+  const res = adaptiveEngine.analyze('Ganti baju menjadi tanktop putih tali tipis, jangan ubah wajah, pertahankan rambut, gunakan rasio 9:16');
+  const expectedOrder = ['/outfit', '/facelock', '/hairlock', '/ar 9:16'];
+  assert(res.installedShorthands.length === 4, 'Test 27: Exactly 4 shorthands installed');
+  const matchesOrder = expectedOrder.every((code, idx) => res.installedShorthands[idx] === code);
+  assert(matchesOrder, `Test 27: Shorthand order matches natural user intent: ${res.installedShorthands.join(' ')}`);
+}
+
 console.log('\n==================================================');
 console.log(`HASIL AKHIR: ${passed} PASSED, ${failed} FAILED`);
 console.log('==================================================\n');
