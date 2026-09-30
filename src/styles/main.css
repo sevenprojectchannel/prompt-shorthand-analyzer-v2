@@ -111,17 +111,20 @@ body {
 
 @media (max-width: 768px) {
   .main-content {
+    width: 100%;
     max-width: 100%;
-    padding: 0.85rem 14px 2rem;
+    padding: 0.85rem 12px 2rem;
+    box-sizing: border-box;
   }
 }
 
 @media (max-width: 480px) {
   .main-content {
     width: 100%;
-    max-width: none;
-    margin: 0;
-    padding: 0.65rem 12px 1.5rem;
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0.65rem 10px 1.5rem;
+    box-sizing: border-box;
   }
 }
 
