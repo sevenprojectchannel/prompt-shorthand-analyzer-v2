@@ -1065,4 +1065,4 @@ Katalog Shorthand yang didukung: /facelock, /hairlock, /backgroundlock, /outfitl
         </footer>
       </div>
     `,t.bindEvents(this.appRoot),e.bindEvents&&e.bindEvents(this.appRoot)}}document.addEventListener("DOMContentLoaded",()=>{window.__PSA_APP__=new oe,window.__PSA_APP__.render()});
-//# sourceMappingURL=index-uWH5OtDk.js.map
+//# sourceMappingURL=index-B_M1c6MU.js.map
