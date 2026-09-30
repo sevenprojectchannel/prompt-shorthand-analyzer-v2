@@ -2423,6 +2423,10 @@
   .panel {
     padding: 0.75rem 0.75rem;
     margin-bottom: 0.75rem;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
   .header-container {
